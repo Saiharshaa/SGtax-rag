@@ -12,3 +12,6 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+
+# source PDFs (see data/raw/SOURCES.md)
+data/raw/*.pdf

@@ -21,10 +21,10 @@ pytest
 
 ## Source documents
 
-Put the PDFs in `data/raw/` (we don't scrape or download anything):
-
-- `ITA_1947.pdf`: Income Tax Act 1947, current revised edition from Singapore Statutes Online
-- `etax_*.pdf`: 3 to 5 IRAS e-Tax guides on corporate income tax
+The Income Tax Act 1947 (2020 Revised Edition, from Singapore Statutes Online) and five IRAS
+e-Tax guides on corporate income tax. The PDFs are not in git; download them into `data/raw/`
+using the links and checksums in [`data/raw/SOURCES.md`](data/raw/SOURCES.md). The app itself
+never scrapes or downloads anything.
 
 ## Layout
 

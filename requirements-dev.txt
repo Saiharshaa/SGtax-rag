@@ -1,3 +1,4 @@
-# Offline tooling: tests now; PDF extraction and charts are added in Phase 1/4.
+# Offline tooling: PDF extraction and tests (charts added in Phase 4).
 # Runtime deps for the deployed app go in requirements.txt (Phase 2+).
+pymupdf==1.28.2
 pytest==8.3.5
