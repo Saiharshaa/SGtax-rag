@@ -39,7 +39,6 @@ def test_detects_explicit_references(text, expected):
         "see paragraph 5.2 of the guide",
         "under subsection (2) and paragraph (a)",
         "Is 5 enough?",
-        "s 14days",
     ],
 )
 def test_ignores_non_references(text):
@@ -49,6 +48,19 @@ def test_ignores_non_references(text):
 def test_query_reference_is_parsed_into_section_and_labels():
     refs = find_section_refs("Under section 10(1)(a), is a gain on sale of shares taxable?")
     assert refs == [SectionRef("10", ("1", "a"))]
+
+
+def test_words_glued_on_by_extraction_are_not_suffixes():
+    assert canonical("under section 43C, 43U, 43Vor 43X") == ["43C", "43U", "43V", "43X"]
+
+
+@pytest.mark.parametrize("text", [
+    "under section 153 of the Criminal Procedure Code 2010",
+    "section 97V of the Economic Expansion Incentives (Relief from Income Tax) Act 1967",
+    "the Companies Act 1967; see section 7 of that Act",
+])
+def test_references_to_other_legislation_are_external(text):
+    assert all(ref.is_external for ref in find_section_refs(text))
 
 
 def test_repeated_references_are_reported_once():

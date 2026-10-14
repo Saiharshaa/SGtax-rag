@@ -13,18 +13,22 @@ import re
 from dataclasses import dataclass
 
 # A subsection/paragraph label: (1), (1A), (a), (za), (ii)
-_LABEL = r"\((?:\d+[A-Z]{0,2}|[ivxl]{1,6}|[a-z]{1,3})\)"
-# One section: number, optional letter suffix, any labels; must not run into a word ("14days").
-_SECTION = rf"\d+[A-Z]{{0,3}}(?:\s?{_LABEL})*(?![A-Za-z0-9])"
-# "s", "s.", "ss", "sec", "section(s)", not preceded by a letter or apostrophe ("company's 14").
-_TRIGGER = r"(?<![\w'’])(?:sections?|secs?\.?|ss\.?|s\.?)\s*"
+_LABEL = r"\((?:\d+[A-Za-z]{0,2}|[ivxl]{1,6}|[a-z]{1,3})\)"
+# Section number + letter suffix. Suffixes are upper case ("14Q"); a single lower-case letter is
+# accepted for typed queries ("14q"). Lower-case runs are words, even when glued on by PDF
+# extraction ("43Vor 43X" is 43V).
+_NUMBER = r"\d+(?:[A-Z]{1,3}|[a-z](?![a-z]))?"
+_SECTION = rf"{_NUMBER}(?:\s?{_LABEL})*(?![A-Z0-9])"
+# "s", "s.", "ss", "sec", "section(s)", any case, not preceded by a letter or apostrophe ("company's 14").
+_TRIGGER = r"(?<![\w'’])(?i:sections?|secs?\.?|ss\.?|s\.?)\s*"
 
-_REF_LIST = re.compile(
-    rf"{_TRIGGER}(?P<list>{_SECTION}(?:\s*(?:,|&|and|or|to)\s*{_SECTION})*)", re.IGNORECASE
+_REF_LIST = re.compile(rf"{_TRIGGER}(?P<list>{_SECTION}(?:\s*(?:,|&|and|or|to)\s*{_SECTION})*)")
+_ONE_SECTION = re.compile(rf"(?P<number>{_NUMBER})(?P<labels>(?:\s?{_LABEL})*)")
+# "... of the Goods and Services Tax Act 1993", "... of the Criminal Procedure Code 2010", "... of that Act".
+_OF_ACT = re.compile(
+    r"\s*of\s+(?:the\s+)?(?P<act>that Act|said Act|"
+    r"(?:(?:[A-Z][\w'-]*|\([^)]{1,40}\)|and|of|&)\s+)*?(?:Act|Code)\b(?:\s+\d{4})?)"
 )
-_ONE_SECTION = re.compile(rf"(?P<number>\d+[A-Z]{{0,3}})(?P<labels>(?:\s?{_LABEL})*)", re.IGNORECASE)
-# "... of the Goods and Services Tax Act 1993": capitalised words (plus "and"/"of") ending in "Act".
-_OF_ACT = re.compile(r"\s*of\s+(?:the\s+)?(?P<act>(?:(?:[A-Z][\w'-]*|\(\w+\)|and|of|&)\s+)*?Act\b(?:\s+\d{4})?)")
 _THIS_ACT = re.compile(r"^(?:Act|Income Tax Act(?: 1947)?)$")
 
 
