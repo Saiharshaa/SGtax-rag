@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from rag.parse_act import Subsection, parse_act_text, section_sort_key
+from rag.parse_act import Subsection, act_body_span, parse_act_text, section_sort_key
 from rag.refs import cited_sections
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_act.txt"
@@ -58,7 +58,7 @@ def test_amendment_note_stays_with_its_section(sections):
 def test_char_spans_cover_heading_and_body(text, sections):
     span = text[sections["6"].char_start:sections["6"].char_end]
     assert span.startswith("Group relief\n6.—(1)")
-    assert span.rstrip().endswith("ordinary shares of the other.")
+    assert span.rstrip().endswith("ordinary shares of the other.\n[7")
     assert text[sections["5"].char_start:].startswith("5. [Repealed")
 
 
@@ -79,3 +79,25 @@ def test_section_sort_key_orders_letter_suffixes():
 def test_cross_refs_from_parsed_text(sections):
     assert cited_sections(sections["4A"].text) == ["4"]
     assert cited_sections(sections["6"].text) == []   # only relative refs ("subsection (2)")
+
+
+def test_body_runs_from_long_title_to_first_schedule(text):
+    start, end = act_body_span(text)
+    assert text[start:].startswith("An Act to impose")
+    assert text[end:].startswith("FIRST SCHEDULE")
+
+
+def test_heading_ending_in_etc(sections):
+    assert sections["3"].heading == "Charge of tax, etc."
+
+
+def test_former_section_number_is_metadata_not_text(sections):
+    assert sections["6"].former_number == "7"
+    assert "[7" not in sections["6"].text
+
+
+def test_letter_suffix_may_go_down_but_numbers_are_not_repeated():
+    text = "Relief one\n93AA. Text one.\nRelief two\n93A. Text two.\n93A. Not a new section.\n"
+    sections = parse_act_text(text)
+    assert [s.number for s in sections] == ["93AA", "93A"]
+    assert sections[1].text.endswith("93A. Not a new section.")

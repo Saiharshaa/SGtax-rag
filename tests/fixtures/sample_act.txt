@@ -26,7 +26,7 @@ Interpretation
 (2) A reference in this Act to a deduction under section 4 includes a deduction under section 4A.
 PART 2
 CHARGE OF TAX
-Charge of tax
+Charge of tax, etc.
 3.—(1) Tax is payable for each year of assessment on the income of any company accruing in or derived from Singapore.
 (2) Income in subsection (1) includes —
 (a) gains or profits from any trade; and
@@ -44,6 +44,7 @@ Group relief
 (a) both companies are incorporated in Singapore; and
 (b) the companies satisfy the shareholding test in subsection (2).
 (2) For the purposes of subsection (1)(b), 2 companies are members of the same group if one owns at least 75% of the ordinary shares of the other.
+[7
 FIRST SCHEDULE
 Section 3(2)
 EXEMPT BODIES
