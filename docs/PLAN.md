@@ -15,8 +15,8 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 | Phase | Deliverable | Status |
 |---|---|---|
 | 0 | Plan, repo layout, chunk schema, parser interfaces, section-reference detector, synthetic Act parser + tests | **done** |
-| 1 | Ingestion: Act + guide parsers on the real PDFs, structured chunks, naive baseline chunks (~500 tokens, 50 overlap) | ready: sources in `data/raw/`, structure verified below |
-| 1b | `results/data_quality.md` + chunk-length histogram (see below) | after 1 |
+| 1 | Ingestion: Act + guide parsers on the real PDFs, structured chunks, naive baseline chunks (~500 tokens, 50 overlap) | **done**: `python scripts/build_chunks.py` (3,667 structured, 1,017 naive) |
+| 1b | `results/data_quality.md` + chunk-length histogram (see below) | **done**: `python scripts/data_quality.py` |
 | 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | |
 | 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | |
 | 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | |
@@ -156,8 +156,8 @@ The path and heading are prepended to the text before indexing (`Chunk.embed_tex
 - [x] Amendment note format `[Act 33 of 2022 wef 26/04/2024]`
 - [x] Guide numbering, footnotes, headers; publication dates (all 30 Jan 2026)
 - [x] No scanned pages: every page has a text layer, so no OCR needed
-- [ ] Phase 1: whether any schedule has its own `PART` lines (the parser would misread them; stop at the first schedule instead)
-- [ ] Phase 1: repealed-section format in the body
-- [ ] Phase 1: split the Interpretation section (s 2) per defined term for one-hop definition expansion
-- [ ] Phase 1: multi-line bold headings (~127); add a two-line-heading case to the fixture and tests
-- [ ] Phase 1: strip `[14T`-style old-number markers from chunk text; keep them as metadata (old → new map)
+- [x] Parsing stops at the first schedule, so Part lines inside schedules can't confuse it
+- [x] Repealed sections (`5. [Repealed by ...]`) and deleted subsections (`[Deleted by Act ...]`) are skipped
+- [x] s 2(1) is split one chunk per defined term (`defined_term` field)
+- [x] Multi-line bold headings joined at extraction (tested)
+- [x] `[14T`-style old-number markers kept as `former_section` metadata, not chunk text
