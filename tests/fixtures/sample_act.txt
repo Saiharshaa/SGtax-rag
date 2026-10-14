@@ -1,0 +1,51 @@
+SAMPLE TAX ACT 2099
+SYNTHETIC TEST FIXTURE - NOT REAL LAW
+ARRANGEMENT OF SECTIONS
+PART 1
+PRELIMINARY
+1. Short title
+2. Interpretation
+PART 2
+CHARGE OF TAX
+3. Charge of tax
+4. Deductions allowed
+4A. Deduction for pre-commencement expenditure
+5. [Repealed]
+6. Group relief
+FIRST SCHEDULE Exempt bodies
+An Act to impose a tax on the income of sample companies.
+[1 January 2099]
+PART 1
+PRELIMINARY
+Short title
+1. This Act is the Sample Tax Act 2099.
+Interpretation
+2.—(1) In this Act, unless the context otherwise requires —
+“company” means any company incorporated or registered under the Sample Companies Act 2099;
+“year of assessment” means the period of 12 months commencing on 1 January 2100 and each subsequent period of 12 months.
+(2) A reference in this Act to a deduction under section 4 includes a deduction under section 4A.
+PART 2
+CHARGE OF TAX
+Charge of tax
+3.—(1) Tax is payable for each year of assessment on the income of any company accruing in or derived from Singapore.
+(2) Income in subsection (1) includes —
+(a) gains or profits from any trade; and
+(b) dividends, interest or discounts.
+Deductions allowed
+4.—(1) Subject to section 5, in ascertaining the income of any company, there must be deducted all outgoings and expenses wholly and exclusively incurred in the production of the income.
+(2) No deduction is allowed under subsection (1) for capital expenditure.
+[Act 5 of 2099 wef 01/01/2099]
+Deduction for pre-commencement expenditure
+4A.—(1) Despite section 4(1), a company may deduct expenses incurred in the 12 months before the date on which it commenced its trade.
+(2) Subsection (1) applies only to expenses that would have been deductible under section 4 if incurred after that date.
+5. [Repealed by Act 7 of 2099]
+Group relief
+6.—(1) A company may transfer its unabsorbed losses to another company in the same group if —
+(a) both companies are incorporated in Singapore; and
+(b) the companies satisfy the shareholding test in subsection (2).
+(2) For the purposes of subsection (1)(b), 2 companies are members of the same group if one owns at least 75% of the ordinary shares of the other.
+FIRST SCHEDULE
+Section 3(2)
+EXEMPT BODIES
+1. Any sample charity registered under the Sample Charities Act 2099.
+2. Any sample town council.
