@@ -16,6 +16,7 @@ NAIVE_SIZE, NAIVE_OVERLAP = 500, 50
 
 TOKEN_RE = re.compile(r"\w+|[^\w\s]")
 DEFINITION_RE = re.compile(r"^“([^”]{1,80})”")
+DELETED_RE = re.compile(r"^\[(?:Deleted|Repealed) by [^\]]+\]$")
 
 
 def count_tokens(text: str) -> int:
@@ -53,13 +54,15 @@ def act_chunks(sections: list[Section], doc_id: str, act_title: str, short_title
                source_file: str) -> list[Chunk]:
     """One chunk per subsection (per section if it has none, per defined term in s 2(1)).
 
-    Repealed sections are skipped. Chunks over MAX_TOKENS are split, each piece keeping the path.
+    Repealed sections and deleted subsections ("[Deleted by Act 19 of 2014]") are skipped. Chunks over MAX_TOKENS are split, each piece keeping the path.
     """
     chunks = []
     for section in sections:
         if section.repealed:
             continue
         for sub in section.subsections:
+            if DELETED_RE.match(sub.text):
+                continue
             label = sub.label or ""
             if section.number == "2" and label == "1":
                 units = split_definitions(sub.text)
