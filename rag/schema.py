@@ -23,6 +23,8 @@ class Chunk:
     para: str = ""         # guide paragraph number, e.g. "5.2"
     cite: str = ""         # citation the answer must use, e.g. "ITA 1947, s 14Q(2)"
     cross_refs: list[str] = field(default_factory=list)  # Act sections cited in the text, e.g. ["10", "14N"]
+    former_section: str = ""   # Act section number before the 2020 Revised Edition, e.g. "14U"
+    defined_term: str = ""     # for Interpretation chunks: the term defined, e.g. "company"
     split_index: int = 1   # k of n when a long section/paragraph is split
     split_total: int = 1
     repealed: bool = False
