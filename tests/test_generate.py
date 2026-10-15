@@ -1,7 +1,7 @@
 import pytest
 
-from rag.generate import REFUSAL, SYSTEM_PROMPT, answer, build_prompt, render_citations
-from rag.retrieve import Hit, RetrievalResult
+from rag.generate import REFUSAL, SYSTEM_PROMPT, answer, answer_best_available, build_prompt, render_citations
+from rag.retrieve import Hit, IncompleteIndex, RetrievalResult
 from rag.schema import Chunk
 
 S14R2 = Chunk("ITA:s14R(2)#1", "act", "Income Tax Act 1947", "ITA_1947.pdf",
@@ -111,3 +111,25 @@ def test_nothing_retrieved_means_no_model_call():
     chat = FakeChat("should not be called")
     result = answer("anything", FakeRetriever([]), [chat])
     assert result.refused and chat.prompts == [] and result.model == ""
+
+
+class DenseDownRetriever(FakeRetriever):
+    """Fails like a half-built dense index for dense configs; works for BM25 ones."""
+
+    def search(self, query, config, k=5, budget=None):
+        if config == "improved":
+            raise IncompleteIndex("the dense index for 'structured' has 1700 of 3577 chunks")
+        return super().search(query, config, k, budget)
+
+
+def test_best_available_falls_back_to_bm25_and_says_why():
+    retriever = DenseDownRetriever([S14R2])
+    result, reason = answer_best_available("Pre-commencement?", retriever, [FakeChat("Deductible [1].")])
+    assert result.config == "improved_bm25" and not result.refused
+    assert "1700 of 3577" in reason
+    assert [call[1] for call in retriever.calls] == ["improved_bm25"]
+
+
+def test_best_available_uses_the_requested_config_when_it_works():
+    result, reason = answer_best_available("Pre-commencement?", FakeRetriever([S14R2]), [FakeChat("Yes [1].")])
+    assert (result.config, reason) == ("improved", None)
