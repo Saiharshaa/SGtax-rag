@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from google.genai import errors
 
-from rag.embed import GeminiEmbedder, HashEmbedder, MissingApiKey
+from rag.embed import GeminiEmbedder, HashEmbedder, MissingApiKey, QuotaExhausted, suggested_wait
 
 
 class FakeModels:
@@ -40,10 +40,10 @@ def test_query_uses_the_query_task_type():
     assert models.calls == [("m", ["q"], "RETRIEVAL_QUERY", 2)]
 
 
-def test_rate_limit_and_server_errors_are_retried_with_backoff():
-    models, sleeps = FakeModels(failures=[429, 503]), []
+def test_rate_limit_waits_a_minute_and_server_errors_back_off():
+    models, sleeps = FakeModels(failures=[429, 503, 503]), []
     assert embedder(models, sleeps).embed_query("q") == [0.6, 0.8]
-    assert sleeps == [2, 4]
+    assert sleeps == [61, 4, 8]
 
 
 def test_client_errors_are_not_retried():
@@ -103,3 +103,24 @@ def test_batches_are_paced_to_the_per_minute_quota():
                            sleep=sleep, clock=lambda: now[0])
     paced.embed_documents(["a", "b", "c", "d", "e"])   # batches of 2, 2, 1 at 4 texts a minute
     assert sleeps == [30.0, 30.0]
+
+
+def quota_error(hint: str) -> errors.APIError:
+    message = f"Quota exceeded for metric: embed_content_free_tier_requests.\nPlease retry in {hint}."
+    return errors.APIError(429, {"error": {"code": 429, "message": message, "status": "RESOURCE_EXHAUSTED"}})
+
+
+@pytest.mark.parametrize("hint, seconds", [("829.5ms", 0.8295), ("15.49s", 15.49), ("17h5m5.5s", 61505.5)])
+def test_retry_hints_are_parsed(hint, seconds):
+    assert suggested_wait(quota_error(hint)) == pytest.approx(seconds)
+
+
+def test_daily_quota_stops_at_once():
+    class DailyQuotaModels(FakeModels):
+        def embed_content(self, model, contents, config):
+            raise quota_error("17h5m5.9s")
+
+    sleeps = []
+    with pytest.raises(QuotaExhausted, match="resets in 17.1 h"):
+        embedder(DailyQuotaModels(), sleeps).embed_documents(["a"])
+    assert sleeps == []

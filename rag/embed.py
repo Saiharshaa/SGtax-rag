@@ -18,13 +18,16 @@ from rag.bm25 import tokenize
 
 GEMINI_MODEL = "gemini-embedding-001"   # override with GEMINI_EMBED_MODEL in .env
 GEMINI_DIM = 768        # the model supports 768/1536/3072; 768 keeps the index small at little cost
-# The free tier allows 100 embedding requests a minute and counts every text in a batch as one. A batch
-# of 100 only fits an empty window, so retrying one livelocks; batches of 50 paced to 100 texts a minute
-# never hit the limit. Set GEMINI_EMBED_PER_MINUTE on a paid tier (0 turns pacing off).
+# The free tier allows 100 embedding requests a minute and 1,000 a day, and counts every text in a batch
+# as one. A batch of 100 only fits an empty window, so retrying one livelocks; batches of 50 paced to 100
+# texts a minute never hit the minute limit. Set GEMINI_EMBED_PER_MINUTE on a paid tier (0: no pacing).
 GEMINI_BATCH = 50
 GEMINI_PER_MINUTE = 100
-MAX_RETRIES = 10        # waits follow the 429's "retry in N s" hint, else back off 2, 4, ... 60 s
-RETRY_IN_RE = re.compile(r"retry in ([\d.]+)\s*(ms|s)\b")
+MAX_RETRIES = 10        # a 429 waits for its "retry in N s" hint or a full minute; 5xx back off 2, 4, ... 60 s
+MAX_QUOTA_WAIT = 300    # a 429 asking for longer is the daily quota: stop instead of waiting
+RETRY_IN_RE = re.compile(r"retry in ((?:[\d.]+(?:h|ms|m|s))+)")   # "829.7ms", "15.4s", "17h5m5.9s"
+DURATION_PART_RE = re.compile(r"([\d.]+)(h|ms|m|s)")
+UNIT_SECONDS = {"h": 3600, "m": 60, "s": 1, "ms": 0.001}
 
 log = logging.getLogger(__name__)
 
@@ -41,12 +44,16 @@ class MissingApiKey(RuntimeError):
     pass
 
 
+class QuotaExhausted(RuntimeError):
+    pass
+
+
 def suggested_wait(error: errors.APIError) -> float | None:
-    """Seconds a 429 asks us to wait ("Please retry in 15.49s."), if it says."""
+    """Seconds a 429 asks us to wait ("Please retry in 15.49s.", "... in 17h5m5.9s."), if it says."""
     match = RETRY_IN_RE.search(f"{error.message} {error}")
     if not match:
         return None
-    return float(match.group(1)) / (1000 if match.group(2) == "ms" else 1)
+    return sum(float(value) * UNIT_SECONDS[unit] for value, unit in DURATION_PART_RE.findall(match.group(1)))
 
 
 def normalise(vector: list[float]) -> list[float]:
@@ -102,7 +109,16 @@ class GeminiEmbedder:
                 if not retryable or attempt == MAX_RETRIES:
                     raise
                 suggested = suggested_wait(error)
-                wait = suggested + 1 if suggested is not None else min(60, 2 ** (attempt + 1))
+                if suggested is not None and suggested > MAX_QUOTA_WAIT:
+                    raise QuotaExhausted(
+                        f"{self.model}: daily quota used up (free tier: 1,000 texts a day); it resets in "
+                        f"{suggested / 3600:.1f} h. Rerun then, or enable billing on the API key's project.") from error
+                if suggested is not None:
+                    wait = suggested + 1
+                elif error.code == 429:
+                    wait = 61   # rejected requests count against the quota too: let the minute window empty
+                else:
+                    wait = min(60, 2 ** (attempt + 1))
                 log.warning("Gemini embedding returned %s; retrying in %s s", error.code, wait)
                 self.sleep(wait)
                 continue

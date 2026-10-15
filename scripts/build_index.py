@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rag.bm25 import BM25Index  # noqa: E402
 from rag.dense import DenseIndex  # noqa: E402
-from rag.embed import GeminiEmbedder, MissingApiKey  # noqa: E402
+from rag.embed import GeminiEmbedder, MissingApiKey, QuotaExhausted  # noqa: E402
 from rag.schema import load_chunks, save_chunks  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -64,8 +64,11 @@ def main() -> None:
         embedder = GeminiEmbedder()
     except MissingApiKey as error:
         sys.exit(f"{error}\nBM25 indexes are built; rerun with --bm25-only to skip the dense index.")
-    for name, chunks in corpora.items():
-        build_dense(name, chunks, embedder)
+    try:
+        for name, chunks in corpora.items():
+            build_dense(name, chunks, embedder)
+    except QuotaExhausted as error:
+        sys.exit(f"{error}\nEverything embedded so far is saved; the next run continues from there.")
 
 
 if __name__ == "__main__":
