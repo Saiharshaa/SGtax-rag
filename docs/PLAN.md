@@ -17,8 +17,8 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 | 0 | Plan, repo layout, chunk schema, parser interfaces, section-reference detector, synthetic Act parser + tests | **done** |
 | 1 | Ingestion: Act + guide parsers on the real PDFs, structured chunks, naive baseline chunks (~500 tokens, 50 overlap) | **done**: `python scripts/build_chunks.py` (3,577 structured, 1,017 naive) |
 | 1b | `results/data_quality.md` + chunk-length histogram (see below) | **done**: `python scripts/data_quality.py` |
-| 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | **code done**: `python scripts/build_index.py`, `python scripts/search.py "..."`. BM25 built; the Gemini dense index needs `GEMINI_API_KEY` |
-| 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | |
+| 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | **done**: `python scripts/build_index.py` (~45 min on the Gemini free tier, resumable), `python scripts/search.py "..."` |
+| 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | **done**: `python scripts/ask.py "..."` |
 | 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | |
 | 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | |
 
@@ -55,9 +55,13 @@ top k with each hit's BM25 and dense rank so results can be explained.
 - **One-hop expansion.** For the top hits, the first chunk of each Act section they cite (max 3) is returned
   separately as extra context for generation. It never changes the ranking, so Recall@5/MRR are unaffected.
 - **Dense index.** Gemini `gemini-embedding-001` at 768 dimensions, `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`
-  task types, 100 texts per request, backoff on 429/5xx. Each vector is stored with a hash of its text, so a
-  build interrupted by the free-tier quota resumes where it stopped. The collection records the embedder,
-  and querying with another one raises.
+  task types, backoff on 429/5xx. Each vector is stored with a hash of its text, so a build interrupted by
+  the free-tier quota resumes where it stopped. The collection records the embedder, and querying with
+  another one raises.
+- **Free-tier quota.** The free tier allows 100 embedding requests a minute and counts every text in a batch
+  as one. Batches of 100 livelocked (a full batch only fits an empty window, and retries kept it from
+  emptying), so requests go in batches of 50, paced client-side to 100 texts a minute: ~45 min for both
+  corpora. `gemini-embedding-2` was tried and rejected: it merges a batch of texts into one vector.
 - **Measured** (3,577 chunks, offline hash embedder standing in for Gemini): BM25 builds in under 1 s,
   Chroma holds 14.5 MB on disk, a warm hybrid query takes ~20 ms, and the process peaks at 167 MB RSS.
   onnxruntime (installed with chromadb) is never imported because embeddings are passed in explicitly.
@@ -65,6 +69,26 @@ top k with each hit's BM25 and dense rank so results can be explained.
   line start ("... under subsections (1),\n(1AA) and (2C).") were parsed as new subsections. A line now
   opens a subsection only if its text starts like a sentence and the label is new. This removed 90
   fragment chunks (3,667 → 3,577) and 65 duplicate ids; `results/data_quality.md` is regenerated.
+
+### Phase 3: generation (`rag/generate.py`, `rag/llm.py`)
+
+`answer(question, retriever, models)` retrieves with the `improved` config (top 5 + up to 3 cross-referenced
+sections), asks the model, and checks the citations.
+
+- **Models.** Groq `openai/gpt-oss-120b` (temperature 0, reasoning effort medium; 1-3 s per answer), with
+  Gemini `gemini-3.8-flash` as the fallback when Groq fails after its own retries. `gemini-2.5-flash` is
+  closed to new API keys. Override with `GROQ_MODEL` / `GEMINI_CHAT_MODEL`.
+- **Citations by number.** Sources are numbered `[1]`..`[n]` in the prompt and the model cites numbers; the
+  code rewrites them as `[ITA 1947, s 14R(2)]` / `[e-Tax Guide: ..., para 5.1]`. Every citation in an answer
+  is therefore well-formed and points at a chunk the model was shown. Adjacent marks merge into one
+  citation, OpenAI-style `【1†L3】` marks are understood, and numbers outside the list are dropped and
+  reported (`Answer.invalid_citations`, for Phase 4's citation-correctness check).
+- **Refusal.** The model is told to reply with one fixed sentence when the sources don't answer. An answer
+  with no valid citation is also turned into that refusal (the raw output is kept in `Answer.raw`): an
+  uncited tax answer is worse than none. Nothing retrieved means no model call.
+- **Spot checks** (structured BM25 + boost, before the dense index existed): the pre-commencement question
+  is answered from s 14R(1)-(2), s 14X(3) and the guide's paras 2.1 and 4.2; the R&R cap question gives
+  $300,000 per three-year period from paras 5.1-5.5; "What is the current GST rate?" is refused.
 
 ## Document structure (verified 2026-10-14)
 
