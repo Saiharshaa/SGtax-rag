@@ -58,10 +58,11 @@ top k with each hit's BM25 and dense rank so results can be explained.
   task types, backoff on 429/5xx. Each vector is stored with a hash of its text, so a build interrupted by
   the free-tier quota resumes where it stopped. The collection records the embedder, and querying with
   another one raises.
-- **Free-tier quota.** The free tier allows 100 embedding requests a minute and counts every text in a batch
-  as one. Batches of 100 livelocked (a full batch only fits an empty window, and retries kept it from
-  emptying), so requests go in batches of 50, paced client-side to 100 texts a minute: ~45 min for both
-  corpora. `gemini-embedding-2` was tried and rejected: it merges a batch of texts into one vector.
+- **Free-tier quota.** The free tier allows 100 embedding requests a minute, counts every text in a batch
+  as one, and counts rejected requests too. Quick retries therefore kept the window full and the build
+  livelocked. Requests now go in batches of 50, paced client-side to 100 texts a minute, and a 429 waits for
+  its "retry in N s" hint or a full minute: ~45 min for both corpora. `gemini-embedding-2` was tried and
+  rejected: it merges a batch of texts into one vector.
 - **Measured** (3,577 chunks, offline hash embedder standing in for Gemini): BM25 builds in under 1 s,
   Chroma holds 14.5 MB on disk, a warm hybrid query takes ~20 ms, and the process peaks at 167 MB RSS.
   onnxruntime (installed with chromadb) is never imported because embeddings are passed in explicitly.
