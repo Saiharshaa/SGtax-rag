@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from rag.embed import MissingApiKey, QuotaExhausted  # noqa: E402
-from rag.generate import answer  # noqa: E402
+from rag.generate import CONTEXT_TOKENS, answer  # noqa: E402
 from rag.llm import LLMUnavailable, default_models  # noqa: E402
 from rag.retrieve import CONFIGS, IncompleteIndex, Retriever  # noqa: E402
 
@@ -28,14 +28,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("question")
     parser.add_argument("--config", default="improved", choices=sorted(CONFIGS))
-    parser.add_argument("-k", type=int, default=5)
+    parser.add_argument("--tokens", type=int, default=CONTEXT_TOKENS, help="context given to the model")
     parser.add_argument("--sources", action="store_true", help="also list every source the model was given")
     args = parser.parse_args()
     load_dotenv(ROOT / ".env")
 
     started = time.monotonic()
     try:
-        result = answer(args.question, Retriever(ROOT / "index"), default_models(), args.config, args.k)
+        result = answer(args.question, Retriever(ROOT / "index"), default_models(), args.config, args.tokens)
     except (MissingApiKey, QuotaExhausted, IncompleteIndex, LLMUnavailable) as error:
         sys.exit(str(error))
     print(result.text)

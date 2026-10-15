@@ -9,8 +9,8 @@ from rag.bm25 import BM25Index
 from rag.dense import DenseIndex
 from rag.embed import HashEmbedder
 from rag.fusion import RRF_K
-from rag.retrieve import (CONFIGS, FORMER_SECTION_BOOST, MAX_EXPANDED, SECTION_BOOST, Corpus,
-                          IncompleteIndex, RetrievalConfig, Retriever)
+from rag.retrieve import (CONFIGS, MAX_BOOSTED, MAX_EXPANDED, SECTION_BOOST, Corpus, IncompleteIndex,
+                          RetrievalConfig, Retriever)
 from rag.schema import Chunk, save_chunks
 
 
@@ -88,17 +88,28 @@ def test_subsection_without_its_own_chunk_boosts_the_whole_section(retriever):
     assert ids(retriever.search("explain s 14X(3)", "structured_bm25_boost"))[0] == "STA:s14X#1"
 
 
-def test_former_number_boosts_the_renumbered_section_at_half_weight_in_document_order(retriever):
-    result = retriever.search("section 14U", "structured_bm25_boost")
-    assert ids(result)[:2] == ["STA:s14R(1)#1", "STA:s14R(2)#1"]
-    assert result.hits[0].score == pytest.approx(FORMER_SECTION_BOOST)
+def test_a_number_that_exists_only_as_a_former_one_means_the_section_it_became(retriever):
+    result = retriever.search("deducting previous expenses under section 14U", "structured_bm25_boost")
+    assert [hit.chunk.section for hit in result.hits if hit.boosted] == ["14R", "14R"]
+    assert ids(result)[0].startswith("STA:s14R")
 
 
-def test_current_number_outranks_a_section_formerly_numbered_the_same(retriever):
+def test_current_numbering_wins_when_a_number_is_both(retriever):
     result = retriever.search("section 37C", "structured_bm25_boost")
-    assert ids(result)[:2] == ["STA:s37C#1", "STA:s37B(1)#1"]
+    assert ids(result)[0] == "STA:s37C#1"
     assert result.hits[0].score == pytest.approx(SECTION_BOOST + 1 / (RRF_K + 1))   # + BM25 rank 1: "37C" is in its path
-    assert result.hits[1].score == pytest.approx(FORMER_SECTION_BOOST)
+    assert not any(hit.boosted for hit in result.hits if hit.chunk.section == "37B")
+
+
+def test_boost_never_adds_chunks_the_retrievers_missed(retriever):
+    # "14U" maps to s 14R, but nothing in the question matches s 14R's text or path
+    assert retriever.search("section 14U", "structured_bm25_boost").hits == []
+
+
+def test_at_most_two_chunks_of_a_named_section_are_boosted(retriever):
+    result = retriever.search("What does s 10 say about income?", "structured_bm25_boost", k=9)
+    assert sum(hit.boosted for hit in result.hits) == MAX_BOOSTED == 2
+    assert {hit.chunk.section for hit in result.hits if hit.boosted} == {"10"}
 
 
 def test_sections_of_other_acts_and_unboosted_configs_get_no_bonus(retriever):
@@ -127,7 +138,7 @@ def test_baseline_searches_naive_chunks(retriever):
 
 def test_corpus_without_sections_has_nothing_to_boost():
     corpus = Corpus("naive", NAIVE, BM25Index.build([c.chunk_id for c in NAIVE], [c.text for c in NAIVE]))
-    assert corpus.section_bonuses("s 10(2)") == ({}, ["10(2)"])
+    assert corpus.section_bonuses("s 10(2)", {"naive:STA#0001": 0.5}) == ({}, ["10(2)"])
 
 
 def test_missing_index_says_how_to_build_it(tmp_path):
@@ -146,3 +157,10 @@ def test_a_partly_built_dense_index_is_refused(tmp_path):
     with pytest.raises(IncompleteIndex, match="3 of 9"):
         retriever.search("group relief", "structured_hybrid")
     assert retriever.search("group relief", "structured_bm25").hits   # BM25 configs still work
+
+
+def test_budget_returns_as_many_leading_chunks_as_fit(retriever):
+    by_count = retriever.search("company income tax deduction", "structured_bm25", k=9)
+    by_budget = retriever.search("company income tax deduction", "structured_bm25", budget=30)
+    assert 1 <= len(by_budget.hits) < len(by_count.hits)
+    assert ids(by_budget) == ids(by_count)[:len(by_budget.hits)]

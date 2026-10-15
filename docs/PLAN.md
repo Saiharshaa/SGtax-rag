@@ -19,7 +19,7 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 | 1b | `results/data_quality.md` + chunk-length histogram (see below) | **done**: `python scripts/data_quality.py` |
 | 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | **done**: `python scripts/build_index.py` (~45 min on the Gemini free tier, resumable), `python scripts/search.py "..."` |
 | 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | **done**: `python scripts/ask.py "..."` |
-| 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | |
+| 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | **BM25 rows done**: `python scripts/evaluate.py --answers 10`. Dense rows wait for the index (free tier: ~3 days); questions await review |
 | 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | |
 
 Each phase ends with a summary and a stop for review.
@@ -48,10 +48,17 @@ top k with each hit's BM25 and dense rank so results can be explained.
 | `improved` | structured | ✓ | ✓ | ✓ | ✓ | what the app uses |
 | `naive_bm25`, `structured_bm25`, `structured_bm25_boost` | | ✓ | | | | extra rows; also work without an API key |
 
-- **Section boost.** Sections named in the question ("s 14R(2)", "section 37B") get a bonus worth one extra
-  first-place vote in the fusion (1/61), narrowed to the subsection when it is a chunk of its own. A
-  pre-2020 number also gives half that bonus to the section it became: "section 37C" surfaces s 37B (group
-  relief, formerly 37C) without outranking today's s 37C. Sections of other Acts are ignored.
+- **Section boost.** For each section named in the question ("s 14R(2)", "section 37B"), the two
+  best-ranked chunks the retrievers found get a bonus worth one extra first-place vote in the fusion
+  (1/61), narrowed to the subsection when it is a chunk of its own. A number means the current section
+  with that number; a pre-2020 number counts only when no current section has it ("14U" → s 14R), because
+  71 of the 98 former numbers are also current numbers. Sections of other Acts are ignored.
+- **Boost, version 1 → 2.** The first version gave the bonus to *every* chunk of a named section, including
+  chunks no retriever found, plus half the bonus to the section a former number became. The Phase 4
+  evaluation showed this flooding the top 5: "section 14Q" (renovation, before 2020) filled it with today's
+  s 14Q, which is a different provision, and recall on the two former-number questions fell from 0.75 to
+  0.25. Version 2 only re-ranks retrieved chunks, caps the bonus at two per section, and lets current
+  numbering win. It was designed after seeing those two questions, so treat its numbers as tuned on them.
 - **One-hop expansion.** For the top hits, the first chunk of each Act section they cite (max 3) is returned
   separately as extra context for generation. It never changes the ranking, so Recall@5/MRR are unaffected.
 - **Dense index.** Gemini `gemini-embedding-001` at 768 dimensions, `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`
@@ -90,6 +97,55 @@ sections), asks the model, and checks the citations.
 - **Spot checks** (structured BM25 + boost, before the dense index existed): the pre-commencement question
   is answered from s 14R(1)-(2), s 14X(3) and the guide's paras 2.1 and 4.2; the R&R cap question gives
   $300,000 per three-year period from paras 5.1-5.5; "What is the current GST rate?" is refused.
+- **Context by tokens, not chunk count** (changed in Phase 4). Answers get 2,500 tokens of retrieved
+  chunks, the size of five naive chunks, plus up to three cross-referenced sections. With top 5, the
+  structured config gave the model ~400 tokens and refused 4 of 10 answerable questions.
+
+### Phase 4: evaluation (`rag/evaluate.py`, `scripts/evaluate.py`)
+
+Results so far (BM25 rows only; the dense index is being built within the free tier's daily quota). The
+full tables are in [`results/metrics.md`](../results/metrics.md), the answers in
+[`results/answers.md`](../results/answers.md).
+
+| | naive BM25 | structured BM25 | structured BM25 + boost |
+|---|---|---|---|
+| Recall@5 | 0.44 | 0.42 | 0.42 |
+| MRR@10 | 0.46 | 0.43 | 0.42 |
+| Recall @ 2,500 tokens | 0.44 | **0.59** | **0.59** |
+| Answers given / refused (10 answerable) | 8 / 2 | | 8 / 2 |
+| Citation precision | 0.42 | | **0.52** |
+| Out-of-scope questions refused | 3 / 3 | | 3 / 3 |
+
+- **Structure wins at equal context.** Top-5 makes naive and structured chunks look even, but five naive
+  chunks hold six times the text. Given the same 2,500 tokens, structured chunks find 59% of gold units
+  against 44%.
+- **Citations a reader can check.** Structured answers cite `[e-Tax Guide: Group Relief System, para 6.1]`;
+  naive chunks have no paragraph or section, so naive answers cite only `[e-Tax Guide: Group Relief System]`.
+  In q01 the model then added paragraph numbers of its own ("¶6.1(a-b]"), unverified and malformed.
+- **Refusals.** Both configs refuse all three out-of-scope questions. Both also refuse the same two
+  answerable ones (q02, q08), and in each case no gold unit was in the context: retrieval misses, where
+  refusing is the right response.
+- **The section boost adds nothing with BM25.** BM25 already matches section numbers through the chunk
+  path; the boost's value, if any, should show with dense retrieval, which ignores numbers. Version 1 of
+  the boost hurt (see Phase 2).
+- **Caveats.** 25 answerable questions, 5 of them naming sections: differences of a few points are within
+  noise. The questions are DRAFT until reviewed, and the boost's version 2 was designed after seeing two of
+  them. Citation precision is automatic (a citation counts when it points at a gold unit); whether each
+  answer is right is for manual review in `results/answers.md`.
+- **Questions to review** (DRAFT notes from drafting):
+  - q09: DC:2.2 and DC:4.3 contain the same list word for word; both are gold, so Recall@5 needs both.
+  - q12: gold is `DC:6`, because the date-of-commencement guide's annex of industry examples is parsed
+    into paragraph 6 ("Updates and amendments"). That is a parser gap: the guide parser doesn't detect
+    this annex. Relabel q12 if it is fixed.
+  - q19, q21: `RR:12` is the renovation guide's whole FAQ annex (6 chunks), so a hit on any of them counts.
+  - q25: the Act and the guide frame the default differently. Under s 14N(3A) the one-year write-off is the
+    default for YA 2021, 2022 and 2024 onwards unless the taxpayer elects three years; the guide (para 4.2)
+    presents one year as the election. Both say the choice is irrevocable.
+  - q05: PC:2.2 and DC:3.4 also state the 12-month look-back but aren't gold, so retrieving them instead of
+    s 14R or PC:4.2 counts as a miss.
+- **Pending:** the dense rows (`naive_dense` = baseline, `structured_dense`, `structured_hybrid`,
+  `structured_hybrid_boost`), and answers from `improved` vs `baseline`. Rerun `python scripts/evaluate.py
+  --answers 10` once `python scripts/build_index.py` completes.
 
 ## Document structure (verified 2026-10-14)
 
@@ -183,7 +239,17 @@ The path and heading are prepended to the text before indexing (`Chunk.embed_tex
   same extracted text, so this is fair.
 - **Ablation**: the core claim changes chunking and retrieval at once. To show which one helps,
   the results table has four rows: naive + dense, structured + dense, structured + hybrid,
-  structured + hybrid + section boost.
+  structured + hybrid + section boost. BM25-only rows (naive, structured, structured + boost) are
+  added: they need no API key, and they separate chunking from retrieval method too.
+- **Equal context**: top-5 is not a fair comparison on its own. A naive chunk is 500 tokens and a
+  structured one ~80 (median), so five naive chunks give the model six times the text. Each row also
+  reports **Recall @ 2,500 tokens**: chunks taken in rank order until they fill the space of five naive
+  chunks.
+- **Question set** (`eval/questions.jsonl`, 28, DRAFT): 20 plain-language questions across the five guide
+  topics, 3 that name a section with 2020 numbering, 2 that use a pre-2020 number, and 3 the corpus can't
+  answer (GST rate, buyer's stamp duty, property tax rate), which test refusal. Drafted from the documents
+  with an evidence quote per question; `tests/test_questions.py` checks that every gold label exists and
+  every quote appears in a gold chunk.
 
 ## Design decisions so far
 
