@@ -5,11 +5,13 @@ model and dimension; the dense index records it so queries are never embedded by
 """
 
 import hashlib
+import json
 import logging
 import math
 import os
 import re
 import time
+from pathlib import Path
 from typing import Callable, Protocol
 
 from google.genai import errors, types
@@ -146,3 +148,24 @@ class HashEmbedder:
         for token in tokenize(text):
             vector[int(hashlib.md5(token.encode()).hexdigest(), 16) % self.dim] += 1.0
         return normalise(vector)
+
+
+class CachedEmbedder:
+    """Keeps query vectors on disk, so re-running the evaluation doesn't spend embedding quota
+    (the free tier's 1,000 a day is shared with the index build). Documents pass straight through."""
+
+    def __init__(self, inner: Embedder, path: Path):
+        self.inner, self.path, self.name = inner, path, inner.name
+        stored = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        self.vectors: dict[str, list[float]] = stored.get(self.name, {})
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self.inner.embed_documents(texts)
+
+    def embed_query(self, text: str) -> list[float]:
+        if text not in self.vectors:
+            self.vectors[text] = self.inner.embed_query(text)
+            stored = json.loads(self.path.read_text(encoding="utf-8")) if self.path.exists() else {}
+            stored[self.name] = self.vectors
+            self.path.write_text(json.dumps(stored), encoding="utf-8")
+        return self.vectors[text]

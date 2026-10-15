@@ -124,3 +124,20 @@ def test_daily_quota_stops_at_once():
     with pytest.raises(QuotaExhausted, match="resets in 17.1 h"):
         embedder(DailyQuotaModels(), sleeps).embed_documents(["a"])
     assert sleeps == []
+
+
+def test_cached_embedder_embeds_each_query_once_across_runs(tmp_path):
+    from rag.embed import CachedEmbedder
+
+    class Counting(HashEmbedder):
+        calls = 0
+
+        def embed_query(self, text):
+            Counting.calls += 1
+            return super().embed_query(text)
+
+    path = tmp_path / "queries.json"
+    first = CachedEmbedder(Counting(dim=8), path).embed_query("group relief")
+    again = CachedEmbedder(Counting(dim=8), path)   # a later run, reading the file
+    assert again.embed_query("group relief") == first and Counting.calls == 1
+    assert again.name == "hash@8"
