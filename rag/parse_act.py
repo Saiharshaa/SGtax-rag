@@ -147,11 +147,21 @@ def _finish(section: Section | None, body: list[tuple[int, str]], end: int) -> N
     section.char_end = end
 
 
+def _starts_subsection(match: re.Match | None, seen: set[str | None]) -> bool:
+    """A "(2A) ..." line opens a subsection only if its text starts like a sentence and the label is new.
+    Cross-references wrap onto line starts too ("... under subsections (1),\n(1AA) and (2C).") and
+    continue with ",", "and", "or", "(b)" or lower case; ~100 such lines in the ITA."""
+    if not match or match.group(1) in seen:
+        return False
+    rest = match.group(2)
+    return not rest or rest[0].isupper() or rest[0] in "[“\""
+
+
 def _split_subsections(lines: list[str]) -> list[Subsection]:
     groups: list[tuple[str | None, list[str]]] = []
     for line in lines:
         match = SUBSECTION_RE.match(line)
-        if match:
+        if _starts_subsection(match, {label for label, _ in groups}):
             groups.append((match.group(1), [match.group(2)] if match.group(2) else []))
         elif groups:
             groups[-1][1].append(line)

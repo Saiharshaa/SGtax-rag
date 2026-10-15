@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from rag.chunk import act_chunks
 from rag.parse_act import act_body_span, parse_act_text
 from rag.parse_guide import parse_guide_text
 from rag.pdf_text import extract_text
@@ -42,3 +43,9 @@ def test_guide_headings_all_found(name, headings):
     titled = {p.heading for p in paragraphs if not p.heading.startswith("Annex")}
     assert len(titled) == headings
     assert not any(h.isdigit() for h in titled)
+
+
+def test_act_chunk_ids_are_unique(act_text):
+    chunks = act_chunks(parse_act_text(act_text), "ITA", "Income Tax Act 1947", "ITA 1947", "ITA_1947.pdf")
+    ids = [chunk.chunk_id for chunk in chunks]
+    assert len(ids) == len(set(ids))

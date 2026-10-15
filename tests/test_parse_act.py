@@ -101,3 +101,16 @@ def test_letter_suffix_may_go_down_but_numbers_are_not_repeated():
     sections = parse_act_text(text)
     assert [s.number for s in sections] == ["93AA", "93A"]
     assert sections[1].text.endswith("93A. Not a new section.")
+
+
+def test_cross_references_wrapped_to_a_line_start_do_not_open_subsections():
+    text = ("An Act to test.\nPART 1\nGENERAL\nCapital allowances\n"
+            "7.—(1) An allowance is made under this section.\n"
+            "(1AA) A further allowance is made.\n"
+            "(2) Allowances made under subsections (1),\n"
+            "(1AA) and (2C) are deducted, as is any amount under subsection\n"
+            "(3) for the purposes of that subsection.\n"
+            "(3) The Comptroller may refuse an allowance.\n")
+    (section,) = parse_act_text(text)
+    assert [sub.label for sub in section.subsections] == ["1", "1AA", "2", "3"]
+    assert section.subsections[2].text.endswith("(3) for the purposes of that subsection.")
