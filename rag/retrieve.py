@@ -21,8 +21,8 @@ from rag.schema import Chunk, load_chunks
 DEFAULT_INDEX_DIR = Path(__file__).resolve().parent.parent / "index"
 CANDIDATES = 50                      # per retriever, before fusion
 SECTION_BOOST = 1.0 / (RRF_K + 1)    # worth one extra first-place vote in the fusion
-FORMER_SECTION_BOOST = SECTION_BOOST / 2   # pre-2020 numbers are ambiguous: 37C was group relief, is now another section
-MAX_EXPANDED = 3                     # sections pulled in by one-hop expansion
+MAX_BOOSTED = 2                      # chunks per named section, so it can't crowd out the guide paragraphs on it
+MAX_EXPANDED = 3                    # sections pulled in by one-hop expansion
 
 
 class IncompleteIndex(RuntimeError):
@@ -97,17 +97,25 @@ class Corpus:
             ids = [id_ for id_ in ids if self.chunks[id_].subsection == labels[0]] or ids
         return ids
 
-    def section_bonuses(self, query: str) -> tuple[dict[str, float], list[str]]:
-        """Chunk id -> bonus for chunks of the sections named in the query, and those sections.
-        A pre-2020 number also gives half the bonus to the section it was renumbered to."""
+    def sections_meant(self, number: str) -> set[str]:
+        """The section a number in a question refers to. Current numbering wins (71 of the 98 pre-2020
+        numbers are also current numbers, and the guides use 2020 numbering); a number that exists only
+        as a former one ("14U") means the section it became."""
+        if number in self.by_section:
+            return {number}
+        return self.current_for_former.get(number, set())
+
+    def section_bonuses(self, query: str, scores: dict[str, float]) -> tuple[dict[str, float], list[str]]:
+        """Chunk id -> bonus for the best-scoring retrieved chunks (at most MAX_BOOSTED) of each section
+        named in the query, and the sections named. Only chunks the retrievers found are boosted: injecting
+        whole sections flooded the top 5 (evaluation, 2026-10-15)."""
         bonuses: dict[str, float] = {}
         refs = [ref for ref in find_section_refs(query) if not ref.is_external]
         for ref in refs:
-            for id_ in self.section_chunks(ref.section, ref.labels):
-                bonuses[id_] = SECTION_BOOST
-            for current in self.current_for_former.get(ref.section, ()):
-                for id_ in self.section_chunks(current, ref.labels):
-                    bonuses.setdefault(id_, FORMER_SECTION_BOOST)
+            for section in self.sections_meant(ref.section):
+                found = [id_ for id_ in self.section_chunks(section, ref.labels) if id_ in scores]
+                for id_ in sorted(found, key=lambda id_: (-scores[id_], self.order[id_]))[:MAX_BOOSTED]:
+                    bonuses[id_] = SECTION_BOOST
         return bonuses, [ref.canonical for ref in refs]
 
     def expand(self, hits: list[Chunk]) -> list[Chunk]:
@@ -155,11 +163,11 @@ class Retriever:
             rankings["dense"] = [id_ for id_, _ in corpus.dense.search(self.embedder.embed_query(query), CANDIDATES)]
         scores = rrf(list(rankings.values()))
 
-        bonuses, sections = corpus.section_bonuses(query) if cfg.section_boost else ({}, [])
+        bonuses, sections = corpus.section_bonuses(query, scores) if cfg.section_boost else ({}, [])
         for id_, bonus in bonuses.items():
-            scores[id_] = scores.get(id_, 0.0) + bonus
+            scores[id_] += bonus
 
-        # Ties (e.g. boosted chunks neither retriever found) keep document order: s 10(2) before s 10(10).
+        # Ties keep document order: s 10(2) before s 10(10).
         best = sorted(scores, key=lambda id_: (-scores[id_], corpus.order[id_]))[:k]
         positions = {name: {id_: rank for rank, id_ in enumerate(ids, start=1)} for name, ids in rankings.items()}
         hits = [Hit(corpus.chunks[id_], scores[id_], positions.get("bm25", {}).get(id_),
