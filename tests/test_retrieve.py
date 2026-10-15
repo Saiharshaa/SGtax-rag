@@ -10,7 +10,7 @@ from rag.dense import DenseIndex
 from rag.embed import HashEmbedder
 from rag.fusion import RRF_K
 from rag.retrieve import (CONFIGS, FORMER_SECTION_BOOST, MAX_EXPANDED, SECTION_BOOST, Corpus,
-                          RetrievalConfig, Retriever)
+                          IncompleteIndex, RetrievalConfig, Retriever)
 from rag.schema import Chunk, save_chunks
 
 
@@ -133,3 +133,16 @@ def test_corpus_without_sections_has_nothing_to_boost():
 def test_missing_index_says_how_to_build_it(tmp_path):
     with pytest.raises(FileNotFoundError, match="build_index"):
         Retriever(tmp_path).search("anything", "structured_bm25")
+
+
+def test_a_partly_built_dense_index_is_refused(tmp_path):
+    embedder = HashEmbedder(dim=128)
+    (tmp_path / "structured").mkdir()
+    save_chunks(tmp_path / "structured" / "chunks.jsonl", STRUCTURED)
+    BM25Index.build([c.chunk_id for c in STRUCTURED], [c.embed_text() for c in STRUCTURED]).save(
+        tmp_path / "structured" / "bm25.json")
+    DenseIndex.open(tmp_path / "chroma", "structured", embedder.name).build(STRUCTURED[:3], embedder)
+    retriever = Retriever(tmp_path, embedder)
+    with pytest.raises(IncompleteIndex, match="3 of 9"):
+        retriever.search("group relief", "structured_hybrid")
+    assert retriever.search("group relief", "structured_bm25").hits   # BM25 configs still work

@@ -15,10 +15,10 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rag.embed import MissingApiKey  # noqa: E402
+from rag.embed import MissingApiKey, QuotaExhausted  # noqa: E402
 from rag.generate import answer  # noqa: E402
 from rag.llm import LLMUnavailable, default_models  # noqa: E402
-from rag.retrieve import CONFIGS, Retriever  # noqa: E402
+from rag.retrieve import CONFIGS, IncompleteIndex, Retriever  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -36,7 +36,7 @@ def main() -> None:
     started = time.monotonic()
     try:
         result = answer(args.question, Retriever(ROOT / "index"), default_models(), args.config, args.k)
-    except (MissingApiKey, LLMUnavailable) as error:
+    except (MissingApiKey, QuotaExhausted, IncompleteIndex, LLMUnavailable) as error:
         sys.exit(str(error))
     print(result.text)
     print(f"\n({result.model or 'no model called'}, {time.monotonic() - started:.1f} s)")
