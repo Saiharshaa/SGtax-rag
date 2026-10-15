@@ -4,7 +4,9 @@ Empty strings (not None) mark "not applicable" because ChromaDB metadata values
 must be str/int/float/bool.
 """
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -38,3 +40,14 @@ class Chunk:
         """Text indexed by BM25 and the embedder: hierarchy path and heading first, then the body."""
         header = "\n".join(part for part in (self.path, self.heading) if part)
         return f"{header}\n\n{self.text}" if header else self.text
+
+
+def load_chunks(path: Path) -> list[Chunk]:
+    with path.open(encoding="utf-8") as f:
+        return [Chunk(**json.loads(line)) for line in f if line.strip()]
+
+
+def save_chunks(path: Path, chunks: list[Chunk]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        for chunk in chunks:
+            f.write(json.dumps(asdict(chunk), ensure_ascii=False) + "\n")

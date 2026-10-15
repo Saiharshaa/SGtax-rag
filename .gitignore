@@ -17,3 +17,7 @@ Thumbs.db
 data/raw/*.pdf
 data/processed/*
 !data/processed/.gitkeep
+
+# built indexes (python scripts/build_index.py); how they reach Render is decided in Phase 5
+index/*
+!index/.gitkeep
