@@ -7,7 +7,9 @@ accounting firms. NTU BC3415 *AI in Accounting & Finance* group project.
 The core claim, measured and not just asserted: **structure-aware chunking +
 hybrid retrieval beats naive fixed-size chunking on legal text.**
 
-**Status:** Phase 0 (plan + scaffold). See [`docs/PLAN.md`](docs/PLAN.md).
+**Status:** ingestion, data quality report and retrieval code are done (Phases 0-2); the Gemini dense
+index is built once `GEMINI_API_KEY` is set. Generation, evaluation and the app are next. See
+[`docs/PLAN.md`](docs/PLAN.md).
 
 ## Setup
 
@@ -18,6 +20,16 @@ uv pip install -r requirements-dev.txt
 cp .env.example .env                 # add GROQ_API_KEY and GEMINI_API_KEY
 pytest
 ```
+
+## Build and query the index
+
+```bash
+python scripts/build_chunks.py       # PDFs in data/raw/ -> chunks in data/processed/
+python scripts/build_index.py        # BM25 + Gemini dense index in index/ (resumable)
+python scripts/search.py "Can a company deduct expenses incurred before it started business?"
+```
+
+Without `GEMINI_API_KEY`, use `build_index.py --bm25-only` and `search.py --config structured_bm25_boost`.
 
 ## Source documents
 

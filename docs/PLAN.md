@@ -15,9 +15,9 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 | Phase | Deliverable | Status |
 |---|---|---|
 | 0 | Plan, repo layout, chunk schema, parser interfaces, section-reference detector, synthetic Act parser + tests | **done** |
-| 1 | Ingestion: Act + guide parsers on the real PDFs, structured chunks, naive baseline chunks (~500 tokens, 50 overlap) | **done**: `python scripts/build_chunks.py` (3,667 structured, 1,017 naive) |
+| 1 | Ingestion: Act + guide parsers on the real PDFs, structured chunks, naive baseline chunks (~500 tokens, 50 overlap) | **done**: `python scripts/build_chunks.py` (3,577 structured, 1,017 naive) |
 | 1b | `results/data_quality.md` + chunk-length histogram (see below) | **done**: `python scripts/data_quality.py` |
-| 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | |
+| 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | **code done**: `python scripts/build_index.py`, `python scripts/search.py "..."`. BM25 built; the Gemini dense index needs `GEMINI_API_KEY` |
 | 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | |
 | 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | |
 | 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | |
@@ -32,6 +32,39 @@ Each phase ends with a summary and a stop for review.
 - Known gaps: repealed/amended provisions, content outside the corpus, OCR/formatting errors
 
 Short and factual; it feeds a slide directly.
+
+### Phase 2: retrieval (`rag/retrieve.py`)
+
+`Retriever.search(query, config, k)` runs BM25 and/or dense search over one corpus (50 candidates
+each), merges them with reciprocal rank fusion (k = 60), adds the section boost, and returns the
+top k with each hit's BM25 and dense rank so results can be explained.
+
+| Config | Corpus | BM25 | Dense | Section boost | Expansion | Role |
+|---|---|---|---|---|---|---|
+| `naive_dense` = `baseline` | naive | | ✓ | | | the approach the project argues against |
+| `structured_dense` | structured | | ✓ | | | ablation: chunking alone |
+| `structured_hybrid` | structured | ✓ | ✓ | | | ablation: + BM25 |
+| `structured_hybrid_boost` | structured | ✓ | ✓ | ✓ | | ablation: + section boost |
+| `improved` | structured | ✓ | ✓ | ✓ | ✓ | what the app uses |
+| `naive_bm25`, `structured_bm25`, `structured_bm25_boost` | | ✓ | | | | extra rows; also work without an API key |
+
+- **Section boost.** Sections named in the question ("s 14R(2)", "section 37B") get a bonus worth one extra
+  first-place vote in the fusion (1/61), narrowed to the subsection when it is a chunk of its own. A
+  pre-2020 number also gives half that bonus to the section it became: "section 37C" surfaces s 37B (group
+  relief, formerly 37C) without outranking today's s 37C. Sections of other Acts are ignored.
+- **One-hop expansion.** For the top hits, the first chunk of each Act section they cite (max 3) is returned
+  separately as extra context for generation. It never changes the ranking, so Recall@5/MRR are unaffected.
+- **Dense index.** Gemini `gemini-embedding-001` at 768 dimensions, `RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`
+  task types, 100 texts per request, backoff on 429/5xx. Each vector is stored with a hash of its text, so a
+  build interrupted by the free-tier quota resumes where it stopped. The collection records the embedder,
+  and querying with another one raises.
+- **Measured** (3,577 chunks, offline hash embedder standing in for Gemini): BM25 builds in under 1 s,
+  Chroma holds 14.5 MB on disk, a warm hybrid query takes ~20 ms, and the process peaks at 167 MB RSS.
+  onnxruntime (installed with chromadb) is never imported because embeddings are passed in explicitly.
+- **Bug found by the dense build.** Chroma rejected duplicate chunk ids: cross-references wrapped onto a
+  line start ("... under subsections (1),\n(1AA) and (2C).") were parsed as new subsections. A line now
+  opens a subsection only if its text starts like a sentence and the label is new. This removed 90
+  fragment chunks (3,667 → 3,577) and 65 duplicate ids; `results/data_quality.md` is regenerated.
 
 ## Document structure (verified 2026-10-14)
 
@@ -137,6 +170,9 @@ The path and heading are prepended to the text before indexing (`Chunk.embed_tex
 - Schedules are skipped for now; they'll be added if the eval questions need them.
 - Source PDFs stay out of git (IRAS copyright notice); `data/raw/SOURCES.md` + SHA-256 keep teammates on identical files.
 - PyMuPDF (`sort=True`) for extraction; pypdf loses word spacing on these PDFs.
+- BM25 is hand-rolled (~60 lines, Snowball stemming, JSON on disk) rather than `rank_bm25`: no numpy at query time, and every scoring step is visible for the report.
+- Fusion by rank (RRF), not score: BM25 scores and cosine similarities are on different scales.
+- Built indexes stay out of git for now: `index/<corpus>/chunks.jsonl` holds the IRAS text. How they reach Render (commit to the private repo, or a build step) is decided in Phase 5.
 
 ## Rubric mapping
 
@@ -161,3 +197,4 @@ The path and heading are prepended to the text before indexing (`Chunk.embed_tex
 - [x] s 2(1) is split one chunk per defined term (`defined_term` field)
 - [x] Multi-line bold headings joined at extraction (tested)
 - [x] `[14T`-style old-number markers kept as `former_section` metadata, not chunk text
+- [x] Cross-references wrapped onto a line start ("(1AA) and (2C).") don't open subsections; chunk ids are unique (tested)
