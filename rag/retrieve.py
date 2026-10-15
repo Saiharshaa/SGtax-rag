@@ -25,6 +25,10 @@ FORMER_SECTION_BOOST = SECTION_BOOST / 2   # pre-2020 numbers are ambiguous: 37C
 MAX_EXPANDED = 3                     # sections pulled in by one-hop expansion
 
 
+class IncompleteIndex(RuntimeError):
+    """The dense index is missing chunks (e.g. the build stopped at the embedding quota)."""
+
+
 @dataclass(frozen=True)
 class RetrievalConfig:
     corpus: str              # "structured" | "naive"
@@ -134,7 +138,11 @@ class Retriever:
             self._corpora[name] = Corpus.load(self.index_dir, name)
         corpus = self._corpora[name]
         if dense and corpus.dense is None:
-            corpus.dense = DenseIndex.open(self.index_dir / "chroma", name, self.embedder.name)
+            index = DenseIndex.open(self.index_dir / "chroma", name, self.embedder.name)
+            if index.count() != len(corpus.chunks):
+                raise IncompleteIndex(f"the dense index for '{name}' has {index.count()} of {len(corpus.chunks)} "
+                                      "chunks: finish python scripts/build_index.py, or use a BM25 config")
+            corpus.dense = index
         return corpus
 
     def search(self, query: str, config: str | RetrievalConfig = "improved", k: int = 5) -> RetrievalResult:

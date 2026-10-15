@@ -63,9 +63,12 @@ class DenseIndex:
             progress(start + len(batch), len(todo))
         return len(todo)
 
+    def count(self) -> int:
+        return self.collection.count()
+
     def search(self, vector: list[float], k: int = 10) -> list[tuple[str, float]]:
         """Top-k (chunk_id, cosine similarity), best first."""
-        k = min(k, self.collection.count())
+        k = min(k, self.count())
         if k == 0:
             return []
         result = self.collection.query(query_embeddings=[vector], n_results=k, include=["distances"])

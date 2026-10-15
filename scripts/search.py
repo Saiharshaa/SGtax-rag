@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from rag.embed import MissingApiKey  # noqa: E402
-from rag.retrieve import CONFIGS, Hit, Retriever  # noqa: E402
+from rag.embed import MissingApiKey, QuotaExhausted  # noqa: E402
+from rag.retrieve import CONFIGS, Hit, IncompleteIndex, Retriever  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -41,7 +41,7 @@ def main() -> None:
 
     try:
         result = Retriever(ROOT / "index").search(args.query, args.config, args.k)
-    except MissingApiKey as error:
+    except (MissingApiKey, QuotaExhausted, IncompleteIndex) as error:
         offline = ", ".join(name for name, cfg in CONFIGS.items() if not cfg.dense)
         sys.exit(f"{error}\nConfigs that need no API key: {offline}")
     if result.query_sections:
