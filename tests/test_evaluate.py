@@ -3,7 +3,8 @@ import json
 import pytest
 
 from rag.evaluate import (Question, chunk_doc, citation_precision, load_spans, recall_at_k, reciprocal_rank,
-                          units_hit, within_budget)
+                          units_hit)
+from rag.retrieve import within_budget
 from rag.schema import Chunk
 
 SPANS = {"ITA": {"14R": (1000, 2000), "37B": (5000, 6000)}, "GR": {"5.1": (100, 300), "Annex1": (900, 950)}}

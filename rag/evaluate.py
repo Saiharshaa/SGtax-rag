@@ -16,7 +16,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from rag.chunk import count_tokens
 from rag.schema import Chunk
 
 Unit = tuple[str, str]   # ("ITA", "14R") or ("GR", "5.1")
@@ -92,16 +91,3 @@ def citation_precision(cited: list[Chunk], gold: set[Unit], spans: dict) -> floa
     if not cited:
         return None
     return sum(bool(units_hit(chunk, gold, spans)) for chunk in cited) / len(cited)
-
-
-def within_budget(ranked: list[Chunk], tokens: int) -> list[Chunk]:
-    """The leading chunks whose texts fit in `tokens` (always at least one). Comparing configs at
-    equal context size is fairer than top-k: five naive chunks hold several times the text of five
-    structured ones."""
-    kept, used = [], 0
-    for chunk in ranked:
-        used += count_tokens(chunk.text)
-        if kept and used > tokens:
-            break
-        kept.append(chunk)
-    return kept

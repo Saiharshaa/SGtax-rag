@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rag.bm25 import BM25Index
+from rag.chunk import count_tokens
 from rag.dense import DenseIndex
 from rag.embed import Embedder, GeminiEmbedder
 from rag.fusion import RRF_K, rrf
@@ -23,6 +24,18 @@ CANDIDATES = 50                      # per retriever, before fusion
 SECTION_BOOST = 1.0 / (RRF_K + 1)    # worth one extra first-place vote in the fusion
 MAX_BOOSTED = 2                      # chunks per named section, so it can't crowd out the guide paragraphs on it
 MAX_EXPANDED = 3                    # sections pulled in by one-hop expansion
+
+
+def within_budget(ranked: list[Chunk], tokens: int) -> list[Chunk]:
+    """The leading chunks whose texts fit in `tokens` (always at least one). Equal context is fairer than
+    equal count: five naive chunks hold several times the text of five structured ones."""
+    kept, used = [], 0
+    for chunk in ranked:
+        used += count_tokens(chunk.text)
+        if kept and used > tokens:
+            break
+        kept.append(chunk)
+    return kept
 
 
 class IncompleteIndex(RuntimeError):
@@ -153,7 +166,9 @@ class Retriever:
             corpus.dense = index
         return corpus
 
-    def search(self, query: str, config: str | RetrievalConfig = "improved", k: int = 5) -> RetrievalResult:
+    def search(self, query: str, config: str | RetrievalConfig = "improved", k: int = 5,
+               budget: int | None = None) -> RetrievalResult:
+        """The top k chunks, or with `budget`, the leading chunks that fit in that many tokens."""
         cfg = CONFIGS[config] if isinstance(config, str) else config
         corpus = self.corpus(cfg.corpus, dense=cfg.dense)
         rankings: dict[str, list[str]] = {}
@@ -168,7 +183,11 @@ class Retriever:
             scores[id_] += bonus
 
         # Ties keep document order: s 10(2) before s 10(10).
-        best = sorted(scores, key=lambda id_: (-scores[id_], corpus.order[id_]))[:k]
+        ordered = sorted(scores, key=lambda id_: (-scores[id_], corpus.order[id_]))
+        if budget is None:
+            best = ordered[:k]
+        else:
+            best = [chunk.chunk_id for chunk in within_budget([corpus.chunks[id_] for id_ in ordered], budget)]
         positions = {name: {id_: rank for rank, id_ in enumerate(ids, start=1)} for name, ids in rankings.items()}
         hits = [Hit(corpus.chunks[id_], scores[id_], positions.get("bm25", {}).get(id_),
                     positions.get("dense", {}).get(id_), id_ in bonuses)

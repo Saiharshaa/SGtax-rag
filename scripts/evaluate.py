@@ -27,10 +27,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rag.chunk import NAIVE_SIZE  # noqa: E402
 from rag.embed import CachedEmbedder, GeminiEmbedder, MissingApiKey, QuotaExhausted  # noqa: E402
 from rag.evaluate import (citation_precision, load_questions, load_spans, recall_at_k,  # noqa: E402
-                          reciprocal_rank, within_budget)
-from rag.generate import answer  # noqa: E402
+                          reciprocal_rank)
+from rag.generate import CONTEXT_TOKENS, answer  # noqa: E402
 from rag.llm import LLMUnavailable, default_models  # noqa: E402
-from rag.retrieve import CONFIGS, IncompleteIndex, Retriever  # noqa: E402
+from rag.retrieve import CONFIGS, IncompleteIndex, Retriever, within_budget  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 QUESTIONS, SPANS = ROOT / "eval" / "questions.jsonl", ROOT / "data" / "processed" / "spans.json"
@@ -40,7 +40,7 @@ RESULTS, INDEX = ROOT / "results", ROOT / "index"
 ROWS = ["naive_bm25", "naive_dense", "structured_bm25", "structured_bm25_boost", "structured_dense",
         "structured_hybrid", "structured_hybrid_boost"]
 K, MRR_DEPTH, FETCH = 5, 10, 40
-BUDGET = K * NAIVE_SIZE          # tokens in five naive chunks: the equal-context comparison
+BUDGET = CONTEXT_TOKENS          # tokens in five naive chunks: the equal-context comparison
 QUESTION_TYPES = ["natural", "section_ref", "old_number"]
 
 SURFACE, TEXT_PRIMARY, TEXT_SECONDARY, GRID = "#fcfcfb", "#0b0b0b", "#52514e", "#e4e3df"

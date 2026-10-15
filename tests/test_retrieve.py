@@ -157,3 +157,10 @@ def test_a_partly_built_dense_index_is_refused(tmp_path):
     with pytest.raises(IncompleteIndex, match="3 of 9"):
         retriever.search("group relief", "structured_hybrid")
     assert retriever.search("group relief", "structured_bm25").hits   # BM25 configs still work
+
+
+def test_budget_returns_as_many_leading_chunks_as_fit(retriever):
+    by_count = retriever.search("company income tax deduction", "structured_bm25", k=9)
+    by_budget = retriever.search("company income tax deduction", "structured_bm25", budget=30)
+    assert 1 <= len(by_budget.hits) < len(by_count.hits)
+    assert ids(by_budget) == ids(by_count)[:len(by_budget.hits)]

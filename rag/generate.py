@@ -10,11 +10,16 @@ with no valid citation is treated as a refusal: an uncited tax answer is worse t
 import re
 from dataclasses import dataclass, field
 
+from rag.chunk import NAIVE_SIZE
 from rag.llm import ChatModel, complete_with_fallback
 from rag.retrieve import Retriever
 from rag.schema import Chunk
 
 REFUSAL = "I can't answer this from the Income Tax Act 1947 and the IRAS e-Tax guides I have."
+# Context per answer, before expansion: the size of five naive chunks, so every config gets the same
+# amount of text. Five structured chunks are only ~400 tokens; at 2,500 tokens BM25 recall rises from
+# 0.42 to 0.59 (results/metrics.md).
+CONTEXT_TOKENS = 5 * NAIVE_SIZE
 
 SYSTEM_PROMPT = f"""You answer Singapore corporate income tax questions for tax associates at accounting firms.
 
@@ -81,9 +86,9 @@ def render_citations(raw: str, sources: list[Chunk]) -> tuple[str, list[Chunk], 
 
 
 def answer(question: str, retriever: Retriever, models: list[ChatModel], config: str = "improved",
-           k: int = 5) -> Answer:
+           context_tokens: int = CONTEXT_TOKENS) -> Answer:
     """Retrieve, generate, and check citations. The expanded (cross-referenced) chunks are extra sources."""
-    result = retriever.search(question, config, k)
+    result = retriever.search(question, config, budget=context_tokens)
     sources = [hit.chunk for hit in result.hits] + result.expanded
     if not sources:
         return Answer(question, REFUSAL, sources, refused=True)

@@ -19,8 +19,8 @@ class FakeRetriever:
     def __init__(self, hits: list[Chunk], expanded: list[Chunk] = ()):
         self.hits, self.expanded, self.calls = hits, list(expanded), []
 
-    def search(self, query, config, k):
-        self.calls.append((query, config, k))
+    def search(self, query, config, k=5, budget=None):
+        self.calls.append((query, config, budget))
         return RetrievalResult(query, [Hit(chunk, 1.0) for chunk in self.hits], self.expanded)
 
 
@@ -88,8 +88,8 @@ def test_narrow_spaces_from_the_model_are_normalised():
 def test_answer_cites_and_reports_the_model():
     chat = FakeChat("Yes, previous expenses are deductible [1], per the guide [2].")
     retriever = FakeRetriever([S14R2, PC42], expanded=[S14X])
-    result = answer("Pre-commencement expenses?", retriever, [chat], config="structured_bm25", k=2)
-    assert retriever.calls == [("Pre-commencement expenses?", "structured_bm25", 2)]
+    result = answer("Pre-commencement expenses?", retriever, [chat], config="structured_bm25", context_tokens=1000)
+    assert retriever.calls == [("Pre-commencement expenses?", "structured_bm25", 1000)]
     assert result.sources == [S14R2, PC42, S14X]
     assert "[3] ITA 1947, s 14X" in chat.prompts[0][1]
     assert result.cited == [S14R2, PC42]
