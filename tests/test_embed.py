@@ -22,7 +22,7 @@ class FakeModels:
 
 
 def embedder(models: FakeModels, sleeps: list | None = None) -> GeminiEmbedder:
-    return GeminiEmbedder(model="m", dim=2, batch_size=2, client=SimpleNamespace(models=models),
+    return GeminiEmbedder(model="m", dim=2, batch_size=2, per_minute=0, client=SimpleNamespace(models=models),
                           sleep=(sleeps if sleeps is not None else []).append)
 
 
@@ -67,3 +67,39 @@ def test_hash_embedder_is_deterministic_and_puts_shared_words_closer():
     assert hashed.embed_query("group relief for companies") == a
     assert math.isclose(sum(x * x for x in a), 1.0)
     assert sum(x * y for x, y in zip(a, b)) > sum(x * y for x, y in zip(a, c))
+
+
+def test_one_vector_for_a_batch_raises():
+    class MergingModels(FakeModels):   # gemini-embedding-2 merges a list into one input
+        def embed_content(self, model, contents, config):
+            return SimpleNamespace(embeddings=[SimpleNamespace(values=[3.0, 4.0])])
+
+    with pytest.raises(ValueError, match="2 texts"):
+        embedder(MergingModels()).embed_documents(["a", "b"])
+
+
+def test_rate_limit_waits_as_long_as_the_error_asks():
+    class QuotaModels(FakeModels):
+        def embed_content(self, model, contents, config):
+            if not self.calls:
+                self.calls.append(model)
+                message = "Quota exceeded for metric: embed_content_free_tier_requests.\nPlease retry in 829.5ms."
+                raise errors.APIError(429, {"error": {"code": 429, "message": message, "status": "RESOURCE_EXHAUSTED"}})
+            return super().embed_content(model, contents, config)
+
+    sleeps = []
+    embedder(QuotaModels(), sleeps).embed_query("q")
+    assert sleeps == [pytest.approx(1.8295)]
+
+
+def test_batches_are_paced_to_the_per_minute_quota():
+    now, sleeps = [0.0], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    paced = GeminiEmbedder(model="m", dim=2, batch_size=2, per_minute=4, client=SimpleNamespace(models=FakeModels()),
+                           sleep=sleep, clock=lambda: now[0])
+    paced.embed_documents(["a", "b", "c", "d", "e"])   # batches of 2, 2, 1 at 4 texts a minute
+    assert sleeps == [30.0, 30.0]
