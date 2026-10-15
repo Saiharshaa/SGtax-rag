@@ -132,6 +132,17 @@ full tables are in [`results/metrics.md`](../results/metrics.md), the answers in
   noise. The questions are DRAFT until reviewed, and the boost's version 2 was designed after seeing two of
   them. Citation precision is automatic (a citation counts when it points at a gold unit); whether each
   answer is right is for manual review in `results/answers.md`.
+- **Questions to review** (DRAFT notes from drafting):
+  - q09: DC:2.2 and DC:4.3 contain the same list word for word; both are gold, so Recall@5 needs both.
+  - q12: gold is `DC:6`, because the date-of-commencement guide's annex of industry examples is parsed
+    into paragraph 6 ("Updates and amendments"). That is a parser gap: the guide parser doesn't detect
+    this annex. Relabel q12 if it is fixed.
+  - q19, q21: `RR:12` is the renovation guide's whole FAQ annex (6 chunks), so a hit on any of them counts.
+  - q25: the Act and the guide frame the default differently. Under s 14N(3A) the one-year write-off is the
+    default for YA 2021, 2022 and 2024 onwards unless the taxpayer elects three years; the guide (para 4.2)
+    presents one year as the election. Both say the choice is irrevocable.
+  - q05: PC:2.2 and DC:3.4 also state the 12-month look-back but aren't gold, so retrieving them instead of
+    s 14R or PC:4.2 counts as a miss.
 - **Pending:** the dense rows (`naive_dense` = baseline, `structured_dense`, `structured_hybrid`,
   `structured_hybrid_boost`), and answers from `improved` vs `baseline`. Rerun `python scripts/evaluate.py
   --answers 10` once `python scripts/build_index.py` completes.
