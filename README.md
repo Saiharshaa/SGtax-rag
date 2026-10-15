@@ -7,9 +7,54 @@ accounting firms. NTU BC3415 *AI in Accounting & Finance* group project.
 The core claim, measured and not just asserted: **structure-aware chunking +
 hybrid retrieval beats naive fixed-size chunking on legal text.**
 
-**Status:** ingestion, data quality report, retrieval and cited answer generation are done
-(Phases 0-3). The evaluation (Phase 4) has its BM25 results in [`results/metrics.md`](results/metrics.md);
-the dense rows follow once the Gemini index is built. The app is next. See [`docs/PLAN.md`](docs/PLAN.md).
+**Status:** all five phases are built. The Streamlit app deploys to Render from `render.yaml`. The Gemini
+index is still being built within the free tier's daily quota; until it is complete, the app and the
+evaluation use BM25 retrieval and say so. See [`docs/PLAN.md`](docs/PLAN.md).
+
+## How it works
+
+```mermaid
+flowchart LR
+    subgraph offline["Offline (scripts/)"]
+        P[Act + 5 e-Tax guide PDFs] --> X[PyMuPDF text]
+        X --> S[Structure-aware chunks<br/>one per subsection / guide paragraph]
+        X --> N[Naive 500-token chunks<br/>baseline]
+        S --> I[BM25 index + Gemini embeddings in Chroma]
+        N --> I
+    end
+    subgraph app["Per question (app.py)"]
+        Q[Question] --> R[BM25 + dense search<br/>RRF fusion + section boost]
+        I --> R
+        R --> C[2,500 tokens of chunks<br/>+ sections they cite]
+        C --> L[Groq gpt-oss-120b<br/>Gemini fallback]
+        L --> V["Citation check:<br/>[2] → [ITA 1947, s 14R(2)]"]
+        V --> A["Cited answer, or refusal"]
+    end
+```
+
+Design decisions, each argued in [`docs/PLAN.md`](docs/PLAN.md):
+
+- **Chunks follow the law's structure.** One chunk per subsection of the Act and per paragraph of a
+  guide, each labelled with its citation, so an answer can cite `[ITA 1947, s 14R(2)]` rather than a
+  document.
+- **Hybrid retrieval.** BM25 catches exact terms and section numbers; embeddings catch paraphrase. The two
+  rankings are merged by rank (RRF), so their scores never need comparing.
+- **Citations the model can't invent.** The model cites numbered sources; the code turns the numbers into
+  citations and drops numbers that weren't sources. An answer with no valid citation becomes a refusal.
+- **Equal-context evaluation.** Chunkers are compared at the same amount of text, not the same number of
+  chunks: five naive chunks hold six times the text of five structured ones.
+- **Fits Render's free tier.** Embeddings come from the Gemini API (no torch); the app peaks at ~200 MB.
+
+## Results
+
+Retrieval and answers on 25 questions with gold sections and paragraphs, plus 3 the corpus can't answer.
+BM25 rows only for now; the full tables are in [`results/metrics.md`](results/metrics.md).
+
+| | naive chunks | structure-aware chunks |
+|---|---|---|
+| Recall @ 2,500 tokens of context | 0.44 | **0.59** |
+| Citation precision of answers | 0.42 | **0.52** |
+| Out-of-scope questions refused | 3/3 | 3/3 |
 
 ## Setup
 
@@ -42,6 +87,25 @@ python scripts/evaluate.py --answers 10   # + generated answers -> results/answe
 Configs whose dense index isn't complete are listed as pending. Query embeddings are cached in
 `index/query_embeddings.json`, so reruns don't use up the Gemini quota.
 
+## Run the app
+
+```bash
+streamlit run app.py                 # http://localhost:8501; set APP_PASSWORD in .env to test the sign-in
+```
+
+## Deploy to Render
+
+1. In the Render dashboard: **New > Blueprint**, connect this GitHub repo. Render reads `render.yaml`
+   (free web service, Python 3.11, `streamlit run app.py`).
+2. When asked, enter `GROQ_API_KEY`, `GEMINI_API_KEY` and `APP_PASSWORD`. Share the password with your
+   team and graders; it keeps the IRAS content and your API quota private.
+3. Deploy. The free tier sleeps after 15 minutes idle, so the first visit afterwards takes about a minute.
+
+The index the app reads is committed under `index/` (private repo). After rebuilding it, commit the changed
+files and Render redeploys. Once `scripts/build_index.py` completes, add the Chroma index with
+`git add -f index/chroma` so the app uses hybrid search instead of BM25. "Compare with the naive baseline"
+makes two model calls per question, so on Groq's free tier it can take 30-40 s.
+
 ## Source documents
 
 The Income Tax Act 1947 (2020 Revised Edition, from Singapore Statutes Online) and five IRAS
@@ -56,7 +120,8 @@ rag/          library code: parsers, chunk schema, reference detector, retrieval
 tests/        pytest; tests/fixtures/sample_act.txt is a synthetic Act (not real law)
 eval/         questions.jsonl: questions with gold sections/paragraphs (scripts/evaluate.py scores them)
 data/raw/     source PDFs        data/processed/  parsed chunks (JSONL)
-index/        persisted BM25 + Chroma index, shipped to Render
+index/        BM25 index + chunks (committed, shipped to Render); Chroma once complete
+app.py        Streamlit app; render.yaml deploys it
 results/      metrics.md, comparison.png, answers.md, data_quality.md
 docs/PLAN.md  phase plan, design decisions, open questions
 ```
