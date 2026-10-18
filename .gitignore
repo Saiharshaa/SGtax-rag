@@ -18,6 +18,14 @@ data/raw/*.pdf
 data/processed/*
 !data/processed/.gitkeep
 
-# built indexes (python scripts/build_index.py); how they reach Render is decided in Phase 5
+# built indexes (python scripts/build_index.py). The runtime files are committed so Render can serve
+# them (private repo; decided in Phase 5). Chroma follows once the Gemini build is complete.
 index/*
 !index/.gitkeep
+!index/structured/
+!index/naive/
+index/*/*
+!index/structured/chunks.jsonl
+!index/structured/bm25.json
+!index/naive/chunks.jsonl
+!index/naive/bm25.json

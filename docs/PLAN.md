@@ -20,7 +20,7 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 | 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | **done**: `python scripts/build_index.py` (~45 min on the Gemini free tier, resumable), `python scripts/search.py "..."` |
 | 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | **done**: `python scripts/ask.py "..."` |
 | 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | **BM25 rows done**: `python scripts/evaluate.py --answers 10`. Dense rows wait for the index (free tier: ~3 days); questions await review |
-| 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | |
+| 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | **done**: `streamlit run app.py`; peaks at ~200 MB. Deploy from `render.yaml` (see README) |
 
 Each phase ends with a summary and a stop for review.
 
@@ -147,6 +147,26 @@ full tables are in [`results/metrics.md`](../results/metrics.md), the answers in
   `structured_hybrid_boost`), and answers from `improved` vs `baseline`. Rerun `python scripts/evaluate.py
   --answers 10` once `python scripts/build_index.py` completes.
 
+### Phase 5: app and deploy (`app.py`, `render.yaml`)
+
+- **App.** A chat-style Streamlit page with three example questions. Each answer shows the model, the time
+  and the retrieval used, and an expander with the cited sources as 600-character excerpts. A toggle
+  shows the naive-chunk answer in a second tab, so the project's claim can be seen in a demo. Dollar
+  amounts are escaped, because Streamlit reads `$...$` as LaTeX.
+- **Degrades instead of failing.** `answer_best_available()` uses `improved` and falls back to the same
+  pipeline on BM25 (`improved_bm25`) when dense search can't run: index incomplete, embedding quota used
+  up, or Gemini down. The caption says which retrieval answered.
+- **Access.** `APP_PASSWORD` turns on a sign-in form (constant-time comparison); without it the app is open,
+  which is how it runs locally.
+- **Memory.** Signing in, answering an example, then a comparison question peaks at 194 MB in-process
+  (Windows, BM25 retrieval; `streamlit.testing` AppTest with the real index and Groq). Render's limit is
+  512 MB; Chroma and the Streamlit server add some on top.
+- **Deploy.** `render.yaml` is a Blueprint for a free Python 3.11.16 web service: `pip install -r
+  requirements.txt`, then `streamlit run app.py` on `$PORT`, with a health check on `/_stcore/health`.
+  The three secrets are set in the dashboard (`sync: false`).
+- **Speed.** One answer takes 2-4 s. With the comparison on, the second model call often waits for Groq's
+  free-tier tokens-per-minute limit: 30-40 s in testing.
+
 ## Document structure (verified 2026-10-14)
 
 Sources, editions and checksums: [`data/raw/SOURCES.md`](../data/raw/SOURCES.md).
@@ -210,8 +230,10 @@ university project relying on educational fair use, but to limit exposure:
 
 - The source PDFs are not committed to git (`.gitignore`); `data/raw/SOURCES.md` lists where to
   fetch them, with checksums.
-- The deployed app shows short retrieved excerpts with citations, not whole documents.
-- To decide before Phase 5: whether the Render app should be password-protected rather than public.
+- The deployed app shows short retrieved excerpts (600 characters) with citations, not whole documents.
+- Decided in Phase 5: the app is password-protected (`APP_PASSWORD`), and the index the app needs, which
+  contains the documents' text, is committed to the private repo so Render can serve it. Building it at
+  deploy time would need the PDFs, which stay out of git.
 
 ## Chunk schema
 

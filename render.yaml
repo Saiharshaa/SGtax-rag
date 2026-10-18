@@ -1,0 +1,21 @@
+# Render Blueprint. In the Render dashboard: New > Blueprint, pick this repo, then enter the three
+# secrets below when asked (sync: false means they are set in the dashboard, never committed).
+services:
+  - type: web
+    name: bc3415-tax-rag
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: >-
+      streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+      --server.headless true --browser.gatherUsageStats false
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.16
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: APP_PASSWORD
+        sync: false

@@ -62,6 +62,8 @@ CONFIGS = {
 }
 CONFIGS["baseline"] = CONFIGS["naive_dense"]
 CONFIGS["improved"] = RetrievalConfig("structured", bm25=True, dense=True, section_boost=True, expand_refs=True)
+# What the app falls back to when dense search is unavailable (index still building, embedding quota used up)
+CONFIGS["improved_bm25"] = RetrievalConfig("structured", bm25=True, dense=False, section_boost=True, expand_refs=True)
 
 
 @dataclass

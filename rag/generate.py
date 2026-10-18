@@ -10,9 +10,13 @@ with no valid citation is treated as a refusal: an uncited tax answer is worse t
 import re
 from dataclasses import dataclass, field
 
+import httpx
+from google.genai import errors as genai_errors
+
 from rag.chunk import NAIVE_SIZE
+from rag.embed import MissingApiKey, QuotaExhausted
 from rag.llm import ChatModel, complete_with_fallback
-from rag.retrieve import Retriever
+from rag.retrieve import IncompleteIndex, Retriever
 from rag.schema import Chunk
 
 REFUSAL = "I can't answer this from the Income Tax Act 1947 and the IRAS e-Tax guides I have."
@@ -20,6 +24,9 @@ REFUSAL = "I can't answer this from the Income Tax Act 1947 and the IRAS e-Tax g
 # amount of text. Five structured chunks are only ~400 tokens; at 2,500 tokens BM25 recall rises from
 # 0.42 to 0.59 (results/metrics.md).
 CONTEXT_TOKENS = 5 * NAIVE_SIZE
+# Why dense search can fail at query time. Chat-model failures are not here: complete_with_fallback turns
+# those into LLMUnavailable, so an APIError reaching answer() comes from embedding the question.
+DENSE_UNAVAILABLE = (IncompleteIndex, MissingApiKey, QuotaExhausted, genai_errors.APIError, httpx.HTTPError)
 
 SYSTEM_PROMPT = f"""You answer Singapore corporate income tax questions for tax associates at accounting firms.
 
@@ -50,6 +57,7 @@ class Answer:
     model: str = ""               # model that answered; "" when none was called
     invalid_citations: list[int] = field(default_factory=list)   # cited numbers that weren't sources
     raw: str = ""                 # model output before rewriting, for debugging and evaluation
+    config: str = ""              # retrieval config the sources came from
 
 
 def format_source(n: int, chunk: Chunk) -> str:
@@ -91,9 +99,22 @@ def answer(question: str, retriever: Retriever, models: list[ChatModel], config:
     result = retriever.search(question, config, budget=context_tokens)
     sources = [hit.chunk for hit in result.hits] + result.expanded
     if not sources:
-        return Answer(question, REFUSAL, sources, refused=True)
+        return Answer(question, REFUSAL, sources, refused=True, config=config)
     raw, model = complete_with_fallback(models, SYSTEM_PROMPT, build_prompt(question, sources))
     text, cited, invalid = render_citations(raw, sources)
     if not cited:
-        return Answer(question, REFUSAL, sources, refused=True, model=model, invalid_citations=invalid, raw=raw)
-    return Answer(question, text, sources, cited, False, model, invalid, raw)
+        return Answer(question, REFUSAL, sources, refused=True, model=model, invalid_citations=invalid, raw=raw,
+                      config=config)
+    return Answer(question, text, sources, cited, False, model, invalid, raw, config)
+
+
+def answer_best_available(question: str, retriever: Retriever, models: list[ChatModel], config: str = "improved",
+                          fallback: str = "improved_bm25",
+                          context_tokens: int = CONTEXT_TOKENS) -> tuple[Answer, str | None]:
+    """Answer with `config`, or with `fallback` (BM25 only) when dense search can't run: the index is still
+    being built, the embedding quota is used up, or the embedding API fails. Returns the answer and why it
+    fell back (None if it didn't)."""
+    try:
+        return answer(question, retriever, models, config, context_tokens), None
+    except DENSE_UNAVAILABLE as error:
+        return answer(question, retriever, models, fallback, context_tokens), str(error)

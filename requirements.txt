@@ -5,3 +5,4 @@ google-genai==2.31.0
 groq==1.7.0
 python-dotenv==1.2.4
 snowballstemmer==3.1.1
+streamlit==1.66.0
