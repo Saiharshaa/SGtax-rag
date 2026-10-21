@@ -7,9 +7,9 @@ accounting firms. NTU BC3415 *AI in Accounting & Finance* group project.
 The core claim, measured and not just asserted: **structure-aware chunking +
 hybrid retrieval beats naive fixed-size chunking on legal text.**
 
-**Status:** all five phases are built. The Streamlit app deploys to Render from `render.yaml`. The Gemini
-index is still being built within the free tier's daily quota; until it is complete, the app and the
-evaluation use BM25 retrieval and say so. See [`docs/PLAN.md`](docs/PLAN.md).
+**Status:** all five phases are built and the app is live on Render (password-protected). The Gemini index
+for the structure-aware chunks is complete; the naive baseline's is still being built within the free
+tier's daily quota, so the in-app comparison uses BM25 for it until then. See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## How it works
 
@@ -23,7 +23,7 @@ flowchart LR
         N --> I
     end
     subgraph app["Per question (app.py)"]
-        Q[Question] --> R[BM25 + dense search<br/>RRF fusion + section boost]
+        Q[Question] --> R[Gemini dense search<br/>+ BM25 and section boost<br/>when a section is named]
         I --> R
         R --> C[2,500 tokens of chunks<br/>+ sections they cite]
         C --> L[Groq gpt-oss-120b<br/>Gemini fallback]
@@ -37,8 +37,9 @@ Design decisions, each argued in [`docs/PLAN.md`](docs/PLAN.md):
 - **Chunks follow the law's structure.** One chunk per subsection of the Act and per paragraph of a
   guide, each labelled with its citation, so an answer can cite `[ITA 1947, s 14R(2)]` rather than a
   document.
-- **Hybrid retrieval.** BM25 catches exact terms and section numbers; embeddings catch paraphrase. The two
-  rankings are merged by rank (RRF), so their scores never need comparing.
+- **Retrieval routed by question.** Embeddings catch paraphrase; BM25 catches exact section numbers. Plain
+  questions use dense search alone (blending in BM25 lowered its ranking quality); questions that name a
+  section also get BM25 and a section boost, merged by rank (RRF).
 - **Citations the model can't invent.** The model cites numbered sources; the code turns the numbers into
   citations and drops numbers that weren't sources. An answer with no valid citation becomes a refusal.
 - **Equal-context evaluation.** Chunkers are compared at the same amount of text, not the same number of
@@ -48,13 +49,28 @@ Design decisions, each argued in [`docs/PLAN.md`](docs/PLAN.md):
 ## Results
 
 Retrieval and answers on 25 questions with gold sections and paragraphs, plus 3 the corpus can't answer.
-BM25 rows only for now; the full tables are in [`results/metrics.md`](results/metrics.md).
+Full tables and caveats: [`results/metrics.md`](results/metrics.md) and [`docs/PLAN.md`](docs/PLAN.md).
 
-| | naive chunks | structure-aware chunks |
+| | naive chunks (BM25) | structure-aware chunks (`improved`) |
 |---|---|---|
-| Recall @ 2,500 tokens of context | 0.44 | **0.59** |
-| Citation precision of answers | 0.42 | **0.52** |
+| Recall @ 2,500 tokens of context | 0.44 | **0.81** |
+| Answerable questions answered (of 10) | 8 | **10** |
+| Citation precision of answers | 0.42 | 0.44 |
 | Out-of-scope questions refused | 3/3 | 3/3 |
+
+`improved` searches with Gemini embeddings and adds BM25 and the section boost only when a question names a
+section: on these questions, dense search alone did best on plain-language questions, hybrid on section
+references.
+
+## Demo video
+
+[`results/demo.mp4`](results/demo.mp4) (3 min, narrated) walks through the app; the narration with timestamps
+is in [`results/demo_script.md`](results/demo_script.md). To record it again after a change:
+
+```bash
+python -m playwright install chromium     # once
+python scripts/record_demo.py             # narrated with a Windows voice; --no-voice for captions only
+```
 
 ## Setup
 
