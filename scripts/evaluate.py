@@ -38,7 +38,7 @@ RESULTS, INDEX = ROOT / "results", ROOT / "index"
 
 # Rows of the results table, in ablation order: each adds one thing to the row above it.
 ROWS = ["naive_bm25", "naive_dense", "structured_bm25", "structured_bm25_boost", "structured_dense",
-        "structured_hybrid", "structured_hybrid_boost"]
+        "structured_hybrid", "structured_hybrid_boost", "structured_routed"]
 K, MRR_DEPTH, FETCH = 5, 10, 40
 BUDGET = CONTEXT_TOKENS          # tokens in five naive chunks: the equal-context comparison
 QUESTION_TYPES = ["natural", "section_ref", "old_number"]

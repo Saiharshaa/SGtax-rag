@@ -5,7 +5,7 @@ import re
 EXCERPT_CHARS = 600   # sources are shown as short excerpts, never whole documents (IRAS copyright notice)
 
 RETRIEVAL_LABELS = {
-    "improved": "structure-aware chunks, BM25 + Gemini embeddings, section boost",
+    "improved": "structure-aware chunks, Gemini embeddings (+ BM25 and section boost when a section is named)",
     "improved_bm25": "structure-aware chunks, BM25 + section boost (embeddings unavailable)",
     "baseline": "naive 500-token chunks, Gemini embeddings",
     "naive_bm25": "naive 500-token chunks, BM25 (embeddings unavailable)",

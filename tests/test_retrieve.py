@@ -67,7 +67,14 @@ def ids(result) -> list[str]:
 def test_named_configs():
     assert CONFIGS["baseline"] == RetrievalConfig("naive", bm25=False, dense=True)
     assert CONFIGS["improved"] == RetrievalConfig("structured", bm25=True, dense=True, section_boost=True,
-                                                  expand_refs=True)
+                                                  expand_refs=True, bm25_only_for_section_refs=True)
+
+
+def test_routed_config_uses_bm25_only_when_a_section_is_named(retriever):
+    plain = retriever.search("transfer loss items to another company in the same group", "structured_routed")
+    assert all(hit.bm25_rank is None for hit in plain.hits) and plain.hits[0].dense_rank
+    named = retriever.search("What does s 37B say about loss items?", "structured_routed")
+    assert any(hit.bm25_rank for hit in named.hits) and any(hit.boosted for hit in named.hits)
 
 
 def test_hybrid_merges_both_retrievers(retriever):
