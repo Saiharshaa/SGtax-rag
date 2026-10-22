@@ -32,10 +32,10 @@ CHAT_INPUT = "Ask a Singapore corporate income tax question"
 EXAMPLE = "Can a company deduct expenses it incurred before it started its business?"
 
 # Results shown on the end card and read out at the end (from results/metrics.md).
-RESULTS = {"naive_recall": "0.44", "structured_recall": "0.81", "naive_answered": "8 / 10",
-           "structured_answered": "10 / 10", "naive_precision": "0.42", "structured_precision": "0.44",
-           "naive_refused": "3 / 3", "structured_refused": "3 / 3"}
-SPOKEN_RESULTS = "81 percent of the right sources, against 44 percent"
+RESULTS = {"naive_recall": "0.67", "structured_recall": "0.81", "naive_mrr": "0.62", "structured_mrr": "0.80",
+           "naive_exact": "0%", "structured_exact": "100%", "naive_refused": "3 / 3", "structured_refused": "3 / 3"}
+SPOKEN_RESULTS = ("81 percent of the right sources, against 67 percent for naive chunks searched the same way, "
+                  "and ranked them higher")
 
 # scene: (caption shown on screen, narration spoken)
 SCENES = {
@@ -78,16 +78,18 @@ SCENES = {
     "naive_answer": ("Naive baseline: its chunks have no section or paragraph, so it can only cite the whole guide.",
                      "The naive baseline can only cite the whole guide, because its chunks have no section or "
                      "paragraph numbers."),
-    "end": ("", f"On twenty-five test questions with known answers, and given the same amount of context, "
-                f"structure-aware chunks found {SPOKEN_RESULTS} for naive chunks. Thank you for watching."),
+    "end": ("", f"On twenty-five test questions with known answers, with the same Gemini search and the same "
+                f"amount of context, structure-aware chunks found {SPOKEN_RESULTS}. And every citation names an "
+                f"exact section or paragraph. Thank you for watching."),
 }
 END_CARD = """
 <h2>Does the structure help? Measured on 25 questions with gold sections and paragraphs</h2>
 <table>
 <tr><th></th><th>Naive 500-token chunks</th><th>Structure-aware chunks</th></tr>
-<tr><td>Recall at equal context (2,500 tokens)</td><td>{naive_recall}</td><td><b>{structured_recall}</b></td></tr>
-<tr><td>Answerable questions answered</td><td>{naive_answered}</td><td><b>{structured_answered}</b></td></tr>
-<tr><td>Citation precision of answers</td><td>{naive_precision}</td><td>{structured_precision}</td></tr>
+<tr><td colspan="3" style="color:#52514e">Both searched with the same Gemini embeddings</td></tr>
+<tr><td>Right sources found, same amount of context</td><td>{naive_recall}</td><td><b>{structured_recall}</b></td></tr>
+<tr><td>How high the first right source ranks (MRR)</td><td>{naive_mrr}</td><td><b>{structured_mrr}</b></td></tr>
+<tr><td>Citations naming an exact section or paragraph</td><td>{naive_exact}</td><td><b>{structured_exact}</b></td></tr>
 <tr><td>Out-of-scope questions refused</td><td>{naive_refused}</td><td>{structured_refused}</td></tr>
 </table>
 <p>Full results, method and caveats: results/metrics.md and docs/PLAN.md</p>
