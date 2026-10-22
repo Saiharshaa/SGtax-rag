@@ -19,7 +19,7 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 | 1b | `results/data_quality.md` + chunk-length histogram (see below) | **done**: `python scripts/data_quality.py` |
 | 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | **done**: `python scripts/build_index.py` (~45 min on the Gemini free tier, resumable), `python scripts/search.py "..."` |
 | 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | **done**: `python scripts/ask.py "..."` |
-| 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | **done** except the naive dense baseline (index still building): `python scripts/evaluate.py --answers 10`; questions await review |
+| 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | **done**: `python scripts/evaluate.py --answers 10`; questions await review |
 | 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | **done**: live on Render; `streamlit run app.py` peaks at ~200 MB. Demo video: `python scripts/record_demo.py` |
 
 Each phase ends with a summary and a stop for review.
@@ -103,27 +103,30 @@ sections), asks the model, and checks the citations.
 
 ### Phase 4: evaluation (`rag/evaluate.py`, `scripts/evaluate.py`)
 
-Results with the structured Gemini index (the naive one is still being built, so `naive_dense`, the
-planned baseline, is pending; naive BM25 stands in). Full tables: [`results/metrics.md`](../results/metrics.md);
+Results with both Gemini indexes complete. Full tables: [`results/metrics.md`](../results/metrics.md);
 answers: [`results/answers.md`](../results/answers.md).
 
 | Config | Recall@5 | MRR@10 | Recall @ 2,500 tokens |
 |---|---|---|---|
 | naive BM25 | 0.44 | 0.46 | 0.44 |
+| **naive dense = `baseline`** | 0.67 | 0.62 | 0.67 |
 | structured BM25 | 0.42 | 0.43 | 0.59 |
 | structured dense (Gemini) | 0.63 | **0.81** | 0.80 |
 | structured hybrid + boost | 0.59 | 0.63 | 0.78 |
 | **structured routed = `improved`** | **0.71** | 0.80 | **0.81** |
 
-| Answers (10 answerable + 3 out of scope) | naive BM25 | `improved` |
+| Answers (10 answerable + 3 out of scope) | `baseline` | `improved` |
 |---|---|---|
-| Answerable questions answered | 8 / 10 | **10 / 10** |
-| Citation precision | 0.42 | 0.44 |
+| Answerable questions answered | 10 / 10 | 10 / 10 |
+| Citations naming an exact section or paragraph | 0% | **100%** |
+| Citation precision (see below: not comparable) | 0.59 | 0.44 |
 | Out-of-scope questions refused | 3 / 3 | 3 / 3 |
 
-- **Structure wins at equal context.** Given the same 2,500 tokens, structure-aware chunks find 81% of gold
-  units (`improved`) against 44% for naive BM25. Top-5 alone hides this: five naive chunks hold six times
-  the text.
+- **Structure wins at equal context, with the same search.** Both searched with Gemini embeddings and given
+  2,500 tokens, structure-aware chunks find 81% of gold units against 67% for naive chunks, and rank the first
+  right source higher (MRR 0.80 vs 0.62). Against naive BM25 the gap is larger (44%), so part of the earlier
+  gap was the search method, not the chunking. Top-5 alone hides the chunking effect: five naive chunks hold
+  six times the text.
 - **Hybrid was not better than dense, so the app routes.** Merging BM25 into the dense ranking (RRF) lowered
   MRR from 0.81 to 0.64: on plain-language questions BM25's ranking pulls good dense results down (Recall@5
   0.57 hybrid vs 0.66 dense), while on questions that name a section it helps (0.67-0.75 vs 0.50-0.56).
@@ -133,8 +136,11 @@ answers: [`results/answers.md`](../results/answers.md).
 - **Citations a reader can check.** Structure-aware answers cite `[ITA 1947, s 37D(6)]` or `[e-Tax Guide:
   Carry-back Relief System, para 9.1]`; naive chunks carry no section or paragraph, so naive answers cite
   only the document and sometimes add paragraph numbers of their own (`[9.1][9.3]`).
-- **Citation precision is about even (0.44 vs 0.42).** `improved` cites more sources per answer, including
-  ones next to the gold paragraphs, which this automatic measure counts as misses.
+- **Citation precision favours big chunks (0.59 baseline vs 0.44).** A naive citation names only the
+  document and counts as correct when its 500-token chunk overlaps a gold unit, which is easy to hit; a
+  structure-aware citation names one paragraph and counts only if it is that paragraph. `improved` also cites
+  more sources per answer, including neighbours of the gold paragraphs. The fairer reading is the row above:
+  every structure-aware citation names a checkable section or paragraph, no naive one does.
 - **A known failure: q01** (two Singapore companies 80% owned by a Hong Kong parent). Dense retrieval misses
   GR para 6.3, which disregards shareholdings held by foreign companies, and the model wrongly concludes the
   80% holding qualifies. BM25 found para 6.3 in the earlier run. Worth a look before the presentation.
@@ -155,9 +161,6 @@ answers: [`results/answers.md`](../results/answers.md).
     presents one year as the election. Both say the choice is irrevocable.
   - q05: PC:2.2 and DC:3.4 also state the 12-month look-back but aren't gold, so retrieving them instead of
     s 14R or PC:4.2 counts as a miss.
-- **Pending:** `naive_dense` (the planned baseline) and answers from `baseline`, once the naive Gemini index
-  is built (`python scripts/build_index.py --corpus naive`; requests are now capped by size, which the
-  naive chunks needed). Then rerun `python scripts/evaluate.py --answers 10`.
 
 ### Phase 5: app and deploy (`app.py`, `render.yaml`)
 

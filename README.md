@@ -7,9 +7,8 @@ accounting firms. NTU BC3415 *AI in Accounting & Finance* group project.
 The core claim, measured and not just asserted: **structure-aware chunking +
 hybrid retrieval beats naive fixed-size chunking on legal text.**
 
-**Status:** all five phases are built and the app is live on Render (password-protected). The Gemini index
-for the structure-aware chunks is complete; the naive baseline's is still being built within the free
-tier's daily quota, so the in-app comparison uses BM25 for it until then. See [`docs/PLAN.md`](docs/PLAN.md).
+**Status:** all five phases are built and the app is live on Render (password-protected). Both Gemini indexes
+(structure-aware and naive) are complete. See [`docs/PLAN.md`](docs/PLAN.md).
 
 ## How it works
 
@@ -51,11 +50,12 @@ Design decisions, each argued in [`docs/PLAN.md`](docs/PLAN.md):
 Retrieval and answers on 25 questions with gold sections and paragraphs, plus 3 the corpus can't answer.
 Full tables and caveats: [`results/metrics.md`](results/metrics.md) and [`docs/PLAN.md`](docs/PLAN.md).
 
-| | naive chunks (BM25) | structure-aware chunks (`improved`) |
+| Both searched with Gemini embeddings | naive 500-token chunks (`baseline`) | structure-aware chunks (`improved`) |
 |---|---|---|
-| Recall @ 2,500 tokens of context | 0.44 | **0.81** |
-| Answerable questions answered (of 10) | 8 | **10** |
-| Citation precision of answers | 0.42 | 0.44 |
+| Right sources found, same 2,500 tokens of context | 0.67 | **0.81** |
+| How high the first right source ranks (MRR@10) | 0.62 | **0.80** |
+| Citations naming an exact section or paragraph | 0% | **100%** |
+| Answerable questions answered (of 10) | 10 | 10 |
 | Out-of-scope questions refused | 3/3 | 3/3 |
 
 `improved` searches with Gemini embeddings and adds BM25 and the section boost only when a question names a
