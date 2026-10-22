@@ -19,8 +19,8 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 | 1b | `results/data_quality.md` + chunk-length histogram (see below) | **done**: `python scripts/data_quality.py` |
 | 2 | Retrieval: BM25 + Chroma dense, RRF merge, exact-section boost, optional one-hop expansion, `baseline`/`improved` flag | **done**: `python scripts/build_index.py` (~45 min on the Gemini free tier, resumable), `python scripts/search.py "..."` |
 | 3 | Generation: Groq (Gemini fallback), answer only from retrieved chunks, cite `[ITA 1947, s X(Y)]`, refuse when context is insufficient | **done**: `python scripts/ask.py "..."` |
-| 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | **BM25 rows done**: `python scripts/evaluate.py --answers 10`. Dense rows wait for the index (free tier: ~3 days); questions await review |
-| 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | **done**: `streamlit run app.py`; peaks at ~200 MB. Deploy from `render.yaml` (see README) |
+| 4 | Evaluation: `eval/questions.jsonl` (25-30, DRAFT until reviewed), Recall@5, MRR, citation correctness on 10; `results/metrics.md` + `comparison.png` | **done**: `python scripts/evaluate.py --answers 10`; questions await review |
+| 5 | Streamlit app, `render.yaml`, README with mermaid diagram + design decisions, memory check under 512 MB | **done**: live on Render; `streamlit run app.py` peaks at ~200 MB. Demo video: `python scripts/record_demo.py` |
 
 Each phase ends with a summary and a stop for review.
 
@@ -103,35 +103,53 @@ sections), asks the model, and checks the citations.
 
 ### Phase 4: evaluation (`rag/evaluate.py`, `scripts/evaluate.py`)
 
-Results so far (BM25 rows only; the dense index is being built within the free tier's daily quota). The
-full tables are in [`results/metrics.md`](../results/metrics.md), the answers in
-[`results/answers.md`](../results/answers.md).
+Results with both Gemini indexes complete. Full tables: [`results/metrics.md`](../results/metrics.md);
+answers: [`results/answers.md`](../results/answers.md).
 
-| | naive BM25 | structured BM25 | structured BM25 + boost |
+| Config | Recall@5 | MRR@10 | Recall @ 2,500 tokens |
 |---|---|---|---|
-| Recall@5 | 0.44 | 0.42 | 0.42 |
-| MRR@10 | 0.46 | 0.43 | 0.42 |
-| Recall @ 2,500 tokens | 0.44 | **0.59** | **0.59** |
-| Answers given / refused (10 answerable) | 8 / 2 | | 8 / 2 |
-| Citation precision | 0.42 | | **0.52** |
-| Out-of-scope questions refused | 3 / 3 | | 3 / 3 |
+| naive BM25 | 0.44 | 0.46 | 0.44 |
+| **naive dense = `baseline`** | 0.67 | 0.62 | 0.67 |
+| structured BM25 | 0.42 | 0.43 | 0.59 |
+| structured dense (Gemini) | 0.63 | **0.81** | 0.80 |
+| structured hybrid + boost | 0.59 | 0.63 | 0.78 |
+| **structured routed = `improved`** | **0.71** | 0.80 | **0.81** |
 
-- **Structure wins at equal context.** Top-5 makes naive and structured chunks look even, but five naive
-  chunks hold six times the text. Given the same 2,500 tokens, structured chunks find 59% of gold units
-  against 44%.
-- **Citations a reader can check.** Structured answers cite `[e-Tax Guide: Group Relief System, para 6.1]`;
-  naive chunks have no paragraph or section, so naive answers cite only `[e-Tax Guide: Group Relief System]`.
-  In q01 the model then added paragraph numbers of its own ("¶6.1(a-b]"), unverified and malformed.
-- **Refusals.** Both configs refuse all three out-of-scope questions. Both also refuse the same two
-  answerable ones (q02, q08), and in each case no gold unit was in the context: retrieval misses, where
-  refusing is the right response.
-- **The section boost adds nothing with BM25.** BM25 already matches section numbers through the chunk
-  path; the boost's value, if any, should show with dense retrieval, which ignores numbers. Version 1 of
-  the boost hurt (see Phase 2).
+| Answers (10 answerable + 3 out of scope) | `baseline` | `improved` |
+|---|---|---|
+| Answerable questions answered | 10 / 10 | 10 / 10 |
+| Citations naming an exact section or paragraph | 0% | **100%** |
+| Citation precision (see below: not comparable) | 0.59 | 0.44 |
+| Out-of-scope questions refused | 3 / 3 | 3 / 3 |
+
+- **Structure wins at equal context, with the same search.** Both searched with Gemini embeddings and given
+  2,500 tokens, structure-aware chunks find 81% of gold units against 67% for naive chunks, and rank the first
+  right source higher (MRR 0.80 vs 0.62). Against naive BM25 the gap is larger (44%), so part of the earlier
+  gap was the search method, not the chunking. Top-5 alone hides the chunking effect: five naive chunks hold
+  six times the text.
+- **Hybrid was not better than dense, so the app routes.** Merging BM25 into the dense ranking (RRF) lowered
+  MRR from 0.81 to 0.64: on plain-language questions BM25's ranking pulls good dense results down (Recall@5
+  0.57 hybrid vs 0.66 dense), while on questions that name a section it helps (0.67-0.75 vs 0.50-0.56).
+  `improved` therefore uses dense search, and adds BM25 and the section boost only when the question names
+  a section: Recall@5 0.71, the best row. The routing rule was chosen after seeing these results on the same
+  25 questions, so treat 0.71 as tuned on them.
+- **Citations a reader can check.** Structure-aware answers cite `[ITA 1947, s 37D(6)]` or `[e-Tax Guide:
+  Carry-back Relief System, para 9.1]`; naive chunks carry no section or paragraph, so naive answers cite
+  only the document and sometimes add paragraph numbers of their own (`[9.1][9.3]`).
+- **Citation precision favours big chunks (0.59 baseline vs 0.44).** A naive citation names only the
+  document and counts as correct when its 500-token chunk overlaps a gold unit, which is easy to hit; a
+  structure-aware citation names one paragraph and counts only if it is that paragraph. `improved` also cites
+  more sources per answer, including neighbours of the gold paragraphs. The fairer reading is the row above:
+  every structure-aware citation names a checkable section or paragraph, no naive one does.
+- **A known failure: q01** (two Singapore companies 80% owned by a Hong Kong parent). Dense retrieval misses
+  GR para 6.3, which disregards shareholdings held by foreign companies, and the model wrongly concludes the
+  80% holding qualifies. BM25 found para 6.3 in the earlier run. Worth a look before the presentation.
+- **Refusals.** All configs refuse all three out-of-scope questions. With BM25, the refusals on answerable
+  questions (q02, q08) were retrieval misses; `improved` answers both.
 - **Caveats.** 25 answerable questions, 5 of them naming sections: differences of a few points are within
-  noise. The questions are DRAFT until reviewed, and the boost's version 2 was designed after seeing two of
-  them. Citation precision is automatic (a citation counts when it points at a gold unit); whether each
-  answer is right is for manual review in `results/answers.md`.
+  noise. The questions are DRAFT until reviewed, and both the boost's version 2 and the routing rule were
+  chosen after seeing results on them. Citation precision is automatic; whether each answer is right is for
+  manual review in `results/answers.md`.
 - **Questions to review** (DRAFT notes from drafting):
   - q09: DC:2.2 and DC:4.3 contain the same list word for word; both are gold, so Recall@5 needs both.
   - q12: gold is `DC:6`, because the date-of-commencement guide's annex of industry examples is parsed
@@ -143,9 +161,6 @@ full tables are in [`results/metrics.md`](../results/metrics.md), the answers in
     presents one year as the election. Both say the choice is irrevocable.
   - q05: PC:2.2 and DC:3.4 also state the 12-month look-back but aren't gold, so retrieving them instead of
     s 14R or PC:4.2 counts as a miss.
-- **Pending:** the dense rows (`naive_dense` = baseline, `structured_dense`, `structured_hybrid`,
-  `structured_hybrid_boost`), and answers from `improved` vs `baseline`. Rerun `python scripts/evaluate.py
-  --answers 10` once `python scripts/build_index.py` completes.
 
 ### Phase 5: app and deploy (`app.py`, `render.yaml`)
 

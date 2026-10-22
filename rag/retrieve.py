@@ -49,6 +49,9 @@ class RetrievalConfig:
     dense: bool
     section_boost: bool = False
     expand_refs: bool = False
+    # Use BM25 only when the question names a section. On the eval set, dense alone did best on plain-language
+    # questions (Recall@5 0.66 vs 0.57 hybrid) and hybrid on those naming a section (0.67-0.75 vs 0.50-0.56).
+    bm25_only_for_section_refs: bool = False
 
 
 CONFIGS = {
@@ -59,9 +62,12 @@ CONFIGS = {
     "structured_dense": RetrievalConfig("structured", bm25=False, dense=True),
     "structured_hybrid": RetrievalConfig("structured", bm25=True, dense=True),
     "structured_hybrid_boost": RetrievalConfig("structured", bm25=True, dense=True, section_boost=True),
+    "structured_routed": RetrievalConfig("structured", bm25=True, dense=True, section_boost=True,
+                                         bm25_only_for_section_refs=True),
 }
 CONFIGS["baseline"] = CONFIGS["naive_dense"]
-CONFIGS["improved"] = RetrievalConfig("structured", bm25=True, dense=True, section_boost=True, expand_refs=True)
+CONFIGS["improved"] = RetrievalConfig("structured", bm25=True, dense=True, section_boost=True, expand_refs=True,
+                                      bm25_only_for_section_refs=True)
 # What the app falls back to when dense search is unavailable (index still building, embedding quota used up)
 CONFIGS["improved_bm25"] = RetrievalConfig("structured", bm25=True, dense=False, section_boost=True, expand_refs=True)
 
@@ -174,7 +180,8 @@ class Retriever:
         cfg = CONFIGS[config] if isinstance(config, str) else config
         corpus = self.corpus(cfg.corpus, dense=cfg.dense)
         rankings: dict[str, list[str]] = {}
-        if cfg.bm25:
+        names_section = any(not ref.is_external for ref in find_section_refs(query))
+        if cfg.bm25 and (names_section or not cfg.bm25_only_for_section_refs or not cfg.dense):
             rankings["bm25"] = [id_ for id_, _ in corpus.bm25.search(query, CANDIDATES)]
         if cfg.dense:
             rankings["dense"] = [id_ for id_, _ in corpus.dense.search(self.embedder.embed_query(query), CANDIDATES)]

@@ -1,6 +1,7 @@
 import math
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from google.genai import errors
 
@@ -10,20 +11,22 @@ from rag.embed import GeminiEmbedder, HashEmbedder, MissingApiKey, QuotaExhauste
 class FakeModels:
     """Stands in for client.models: records calls, can fail the first `failures` calls."""
 
-    def __init__(self, failures: list[int] = ()):
-        self.calls, self.failures = [], list(failures)
+    def __init__(self, failures: list = ()):
+        self.calls, self.failures = [], list(failures)   # status codes, or exceptions to raise
 
     def embed_content(self, model, contents, config):
         self.calls.append((model, list(contents), config.task_type, config.output_dimensionality))
         if self.failures:
-            code = self.failures.pop(0)
-            raise errors.APIError(code, {"error": {"code": code, "message": "fake", "status": "FAKE"}})
+            failure = self.failures.pop(0)
+            if isinstance(failure, Exception):
+                raise failure
+            raise errors.APIError(failure, {"error": {"code": failure, "message": "fake", "status": "FAKE"}})
         return SimpleNamespace(embeddings=[SimpleNamespace(values=[3.0, 4.0]) for _ in contents])
 
 
 def embedder(models: FakeModels, sleeps: list | None = None) -> GeminiEmbedder:
-    return GeminiEmbedder(model="m", dim=2, batch_size=2, per_minute=0, client=SimpleNamespace(models=models),
-                          sleep=(sleeps if sleeps is not None else []).append)
+    return GeminiEmbedder(model="m", dim=2, batch_size=2, per_minute=0, chars_per_minute=0,
+                          client=SimpleNamespace(models=models), sleep=(sleeps if sleeps is not None else []).append)
 
 
 def test_documents_are_batched_with_the_document_task_type():
@@ -42,7 +45,7 @@ def test_query_uses_the_query_task_type():
 
 def test_rate_limit_waits_a_minute_and_server_errors_back_off():
     models, sleeps = FakeModels(failures=[429, 503, 503]), []
-    assert embedder(models, sleeps).embed_query("q") == [0.6, 0.8]
+    assert embedder(models, sleeps).embed_documents(["q"]) == [[0.6, 0.8]]
     assert sleeps == [61, 4, 8]
 
 
@@ -88,7 +91,7 @@ def test_rate_limit_waits_as_long_as_the_error_asks():
             return super().embed_content(model, contents, config)
 
     sleeps = []
-    embedder(QuotaModels(), sleeps).embed_query("q")
+    embedder(QuotaModels(), sleeps).embed_documents(["q"])
     assert sleeps == [pytest.approx(1.8295)]
 
 
@@ -141,3 +144,48 @@ def test_cached_embedder_embeds_each_query_once_across_runs(tmp_path):
     again = CachedEmbedder(Counting(dim=8), path)   # a later run, reading the file
     assert again.embed_query("group relief") == first and Counting.calls == 1
     assert again.name == "hash@8"
+
+
+def test_requests_are_capped_by_size_as_well_as_count():
+    models = FakeModels()
+    long = "x" * 30_000   # two of these exceed MAX_BATCH_CHARS (40,000)
+    embedder(models).embed_documents([long, long, "a"])
+    assert [len(call[1]) for call in models.calls] == [1, 2]
+
+
+def test_long_texts_are_paced_by_characters():
+    now, sleeps = [0.0], []
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        now[0] += seconds
+
+    paced = GeminiEmbedder(model="m", dim=2, batch_size=1, per_minute=1000, chars_per_minute=600,
+                           client=SimpleNamespace(models=FakeModels()), sleep=sleep, clock=lambda: now[0])
+    paced.embed_documents(["x" * 300, "x" * 300])   # 300 characters is half a minute at 600 a minute
+    assert sleeps == [30.0]
+
+
+def test_dropped_connections_are_retried():
+    models, sleeps = FakeModels(failures=[httpx.ConnectError("getaddrinfo failed")]), []
+    assert embedder(models, sleeps).embed_documents(["q"]) == [[0.6, 0.8]]
+    assert sleeps == [2]
+
+
+def test_repeated_rate_limits_without_a_retry_time_mean_the_daily_quota():
+    sleeps = []
+    with pytest.raises(QuotaExhausted, match="3 rate-limit errors in a row"):
+        embedder(FakeModels(failures=[429, 429, 429, 429]), sleeps).embed_documents(["q"])
+    assert sleeps == [61, 61]
+
+
+def test_live_questions_fail_fast():
+    sleeps = []
+    with pytest.raises(errors.APIError):
+        embedder(FakeModels(failures=[429]), sleeps).embed_query("q")   # no minute-long wait
+    assert sleeps == []
+    models = FakeModels(failures=[503])
+    assert embedder(models, sleeps).embed_query("q") == [0.6, 0.8]       # one short retry
+    assert sleeps == [1]
+    with pytest.raises(errors.APIError):
+        embedder(FakeModels(failures=[503, 503]), []).embed_query("q")

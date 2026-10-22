@@ -1,5 +1,7 @@
 # Offline tooling: PDF extraction, charts and tests, plus everything the app needs.
 -r requirements.txt
+imageio-ffmpeg==0.6.0
 matplotlib==3.11.2
+playwright==1.64.0          # scripts/record_demo.py (then: python -m playwright install chromium)
 pymupdf==1.28.2
 pytest==8.3.5

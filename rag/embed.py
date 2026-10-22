@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Callable, Protocol
 
+import httpx
 from google.genai import errors, types
 
 from rag.bm25 import tokenize
@@ -25,8 +26,14 @@ GEMINI_DIM = 768        # the model supports 768/1536/3072; 768 keeps the index 
 # texts a minute never hit the minute limit. Set GEMINI_EMBED_PER_MINUTE on a paid tier (0: no pacing).
 GEMINI_BATCH = 50
 GEMINI_PER_MINUTE = 100
+# It also allows ~30,000 tokens a minute: 50 naive chunks (~29,000 tokens) were refused however long the
+# build waited, while 10 went through. Requests are capped by size too, and paced to ~25,000 tokens a minute.
+MAX_BATCH_CHARS = 40_000          # ~10,000 tokens per request
+GEMINI_CHARS_PER_MINUTE = 100_000  # ~25,000 tokens; GEMINI_EMBED_CHARS_PER_MINUTE overrides (0: no pacing)
 MAX_RETRIES = 10        # a 429 waits for its "retry in N s" hint or a full minute; 5xx back off 2, 4, ... 60 s
 MAX_QUOTA_WAIT = 300    # a 429 asking for longer is the daily quota: stop instead of waiting
+HINTLESS_429_LIMIT = 3  # this many 429s in a row without a retry time also means the daily quota is used up
+QUERY_RETRIES = 1       # a live question retries once, briefly, then the app falls back to BM25
 RETRY_IN_RE = re.compile(r"retry in ((?:[\d.]+(?:h|ms|m|s))+)")   # "829.7ms", "15.4s", "17h5m5.9s"
 DURATION_PART_RE = re.compile(r"([\d.]+)(h|ms|m|s)")
 UNIT_SECONDS = {"h": 3600, "m": 60, "s": 1, "ms": 0.001}
@@ -67,12 +74,15 @@ class GeminiEmbedder:
     """Gemini embeddings with task types (documents vs queries), batching, pacing and retry on 429/5xx."""
 
     def __init__(self, api_key: str | None = None, model: str | None = None, dim: int = GEMINI_DIM,
-                 batch_size: int = GEMINI_BATCH, per_minute: int | None = None, client=None,
-                 sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic):
+                 batch_size: int = GEMINI_BATCH, per_minute: int | None = None, chars_per_minute: int | None = None,
+                 client=None, sleep: Callable[[float], None] = time.sleep,
+                 clock: Callable[[], float] = time.monotonic):
         model = model or os.environ.get("GEMINI_EMBED_MODEL") or GEMINI_MODEL
         if per_minute is None:
             per_minute = int(os.environ.get("GEMINI_EMBED_PER_MINUTE") or GEMINI_PER_MINUTE)
-        self.per_minute, self.clock, self._ready_at = per_minute, clock, 0.0
+        if chars_per_minute is None:
+            chars_per_minute = int(os.environ.get("GEMINI_EMBED_CHARS_PER_MINUTE") or GEMINI_CHARS_PER_MINUTE)
+        self.per_minute, self.chars_per_minute, self.clock, self._ready_at = per_minute, chars_per_minute, clock, 0.0
         if client is None:
             from google import genai
             api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -84,31 +94,54 @@ class GeminiEmbedder:
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         vectors = []
-        for start in range(0, len(texts), self.batch_size):
-            vectors += self._embed_batch(texts[start:start + self.batch_size], "RETRIEVAL_DOCUMENT")
+        for batch in self._batches(texts):
+            vectors += self._embed_batch(batch, "RETRIEVAL_DOCUMENT")
         return vectors
 
     def embed_query(self, text: str) -> list[float]:
-        return self._embed_batch([text], "RETRIEVAL_QUERY")[0]
+        """Fails fast: a live question shouldn't wait minutes on a quota; the app falls back to BM25."""
+        return self._embed_batch([text], "RETRIEVAL_QUERY", interactive=True)[0]
 
-    def _pace(self, n_texts: int) -> None:
-        """Wait until sending n_texts keeps us under per_minute texts a minute."""
-        if self.per_minute <= 0:
+    def _batches(self, texts: list[str]):
+        """Runs of texts with at most batch_size items and MAX_BATCH_CHARS characters (one text always fits)."""
+        batch: list[str] = []
+        for text in texts:
+            if batch and (len(batch) == self.batch_size or sum(map(len, batch)) + len(text) > MAX_BATCH_CHARS):
+                yield batch
+                batch = []
+            batch.append(text)
+        if batch:
+            yield batch
+
+    def _pace(self, n_texts: int, n_chars: int) -> None:
+        """Wait until sending this request keeps us under both per-minute limits (texts and characters)."""
+        seconds = max(n_texts * 60 / self.per_minute if self.per_minute > 0 else 0,
+                      n_chars * 60 / self.chars_per_minute if self.chars_per_minute > 0 else 0)
+        if not seconds:
             return
         now = self.clock()
         if now < self._ready_at:
             self.sleep(self._ready_at - now)
-        self._ready_at = max(now, self._ready_at) + n_texts * 60 / self.per_minute
+        self._ready_at = max(now, self._ready_at) + seconds
 
-    def _embed_batch(self, texts: list[str], task_type: str) -> list[list[float]]:
+    def _embed_batch(self, texts: list[str], task_type: str, interactive: bool = False) -> list[list[float]]:
         config = types.EmbedContentConfig(task_type=task_type, output_dimensionality=self.dim)
-        for attempt in range(MAX_RETRIES + 1):
-            self._pace(len(texts))
+        max_retries = QUERY_RETRIES if interactive else MAX_RETRIES
+        hintless = 0
+        for attempt in range(max_retries + 1):
+            self._pace(len(texts), sum(map(len, texts)))
             try:
                 response = self.client.models.embed_content(model=self.model, contents=texts, config=config)
+            except httpx.TransportError as error:   # dropped connection, DNS failure, timeout
+                if attempt == max_retries:
+                    raise
+                wait = 1 if interactive else min(60, 2 ** (attempt + 1))
+                log.warning("Gemini embedding connection failed (%s); retrying in %s s", type(error).__name__, wait)
+                self.sleep(wait)
+                continue
             except errors.APIError as error:
                 retryable = error.code == 429 or error.code >= 500
-                if not retryable or attempt == MAX_RETRIES:
+                if not retryable or attempt == max_retries or (interactive and error.code == 429):
                     raise
                 suggested = suggested_wait(error)
                 if suggested is not None and suggested > MAX_QUOTA_WAIT:
@@ -118,9 +151,14 @@ class GeminiEmbedder:
                 if suggested is not None:
                     wait = suggested + 1
                 elif error.code == 429:
+                    hintless += 1
+                    if hintless >= HINTLESS_429_LIMIT:
+                        raise QuotaExhausted(
+                            f"{self.model}: {hintless} rate-limit errors in a row with no retry time, so the daily "
+                            "quota (1,000 texts) is probably used up. Rerun later; progress is saved.") from error
                     wait = 61   # rejected requests count against the quota too: let the minute window empty
                 else:
-                    wait = min(60, 2 ** (attempt + 1))
+                    wait = 1 if interactive else min(60, 2 ** (attempt + 1))
                 log.warning("Gemini embedding returned %s; retrying in %s s", error.code, wait)
                 self.sleep(wait)
                 continue
