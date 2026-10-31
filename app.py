@@ -28,7 +28,9 @@ EXAMPLES = [
 ]
 # (tab label, retrieval config, fallback config when embeddings are unavailable)
 IMPROVED = ("Structure-aware (this project)", "improved", "improved_bm25")
+DEEP_SEARCH = ("Deep Tax Search", "improved_astar", "improved_astar_bm25")
 BASELINE = ("Naive baseline", "baseline", "naive_bm25")
+RETRIES = 2   # the most times a reply that can't be used is sent back to the model (rag.generate.reply_problem)
 
 load_dotenv(ROOT / ".env")
 st.set_page_config(page_title="SG Tax Answers", page_icon=":material/gavel:", layout="centered")
@@ -55,13 +57,16 @@ def pipeline() -> tuple[Retriever, list]:
     return retriever, default_models()
 
 
-def run(question: str, retriever: Retriever, models: list, compare: bool) -> list[dict]:
-    runs = [IMPROVED, BASELINE] if compare else [IMPROVED]
+def run(question: str, retriever: Retriever, models: list, compare: bool, deep: bool = False,
+        retry: bool = False) -> list[dict]:
+    runs = [DEEP_SEARCH if deep else IMPROVED] + ([BASELINE] if compare else [])
     results = []
     for label, config, fallback in runs:
         started = time.monotonic()
         try:
-            result, _ = answer_best_available(question, retriever, models, config, fallback)
+            # An empty reply is always sent back; with Retry on, so is one that was cut off or has no valid citation
+            result, _ = answer_best_available(question, retriever, models, config, fallback, retries=RETRIES,
+                                              only_empty=not retry)
             results.append({"label": label, "answer": result, "seconds": time.monotonic() - started})
         except LLMUnavailable:
             results.append({"label": label, "error": "Groq and Gemini both failed to answer. Try again in a minute."})
@@ -74,7 +79,8 @@ def show_answer(result: Answer, seconds: float) -> None:
     else:
         st.markdown(markdown_safe(result.text))
     model = result.model.split(":", 1)[-1] if result.model else "no model called"
-    st.caption(f"{model} · {seconds:.1f} s · {RETRIEVAL_LABELS.get(result.config, result.config)}")
+    calls = f" · {result.attempts} model calls" if result.attempts > 1 else ""
+    st.caption(f"{model} · {seconds:.1f} s{calls} · {RETRIEVAL_LABELS.get(result.config, result.config)}")
     if result.cited:
         with st.expander(f"Sources cited ({len(result.cited)})"):
             for chunk in result.cited:
@@ -110,6 +116,14 @@ except (MissingApiKey, FileNotFoundError) as error:
 compare = st.toggle("Compare with the naive baseline",
                     help="The same model given 500-token chunks without section structure: the approach this "
                          "project measures itself against.")
+deep = st.toggle("Deep Tax Search",
+                 help="Adds what the sections found depend on: the subsections and sections they refer to, the "
+                      "definitions they use, and the earlier part of a provision split in two. Same amount of "
+                      "text, no extra model calls.")
+retry = st.toggle("Retry",
+                  help=f"Sends a reply back to the model, at most {RETRIES} times, when it was cut off at the length "
+                       "limit, cites no source, or cites a source that doesn't exist. An empty reply is always sent "
+                       "back, with or without this.")
 history = st.session_state.setdefault("history", [])
 
 question = st.chat_input("Ask a Singapore corporate income tax question")
@@ -130,7 +144,7 @@ if question:
         st.markdown(markdown_safe(question))
     with st.chat_message("assistant"):
         with st.spinner("Searching the Act and the e-Tax guides…"):
-            results = run(question, retriever, models, compare)
+            results = run(question, retriever, models, compare, deep, retry)
         show_results(results)
     history.append({"question": question, "results": results})
     st.rerun()   # redraw from history, so the example buttons go once a question is asked

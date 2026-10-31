@@ -75,6 +75,8 @@ CONFIGS["improved_astar"] = RetrievalConfig("structured", bm25=True, dense=True,
                                             bm25_only_for_section_refs=True)
 # What the app falls back to when dense search is unavailable (index still building, embedding quota used up)
 CONFIGS["improved_bm25"] = RetrievalConfig("structured", bm25=True, dense=False, section_boost=True, expand_refs=True)
+CONFIGS["improved_astar_bm25"] = RetrievalConfig("structured", bm25=True, dense=False, section_boost=True,
+                                                 expand_astar=True)   # the same, for improved_astar
 
 
 @dataclass

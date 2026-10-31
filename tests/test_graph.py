@@ -163,6 +163,8 @@ def retriever(tmp_path):
 def test_improved_astar_keeps_the_hits_of_improved_and_only_changes_the_expansion(retriever):
     assert CONFIGS["improved_astar"] == RetrievalConfig("structured", bm25=True, dense=True, section_boost=True,
                                                         expand_astar=True, bm25_only_for_section_refs=True)
+    assert CONFIGS["improved_astar_bm25"] == RetrievalConfig("structured", bm25=True, dense=False, section_boost=True,
+                                                             expand_astar=True)   # its fallback without embeddings
     question = "May a transferor company transfer a qualifying deduction?"
     improved = retriever.search(question, "improved", k=1)
     astar = retriever.search(question, "improved_astar", k=1)

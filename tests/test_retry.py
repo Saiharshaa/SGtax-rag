@@ -56,6 +56,24 @@ def test_reply_problem_names_what_to_fix_and_accepts_the_models_own_refusal(raw,
     assert (expected in note) if expected else note == ""
 
 
+@pytest.mark.parametrize("raw, cited, invalid, reason, expected", [
+    ("", [], [], "length", "ran out of its output limit"),
+    ("Half [1]", [S37B], [], "length", ""),
+    ("Section 37B allows it.", [], [], "stop", ""),
+    ("Yes [1][7].", [S37B], [7], "stop", ""),
+], ids=["empty", "cut-off", "uncited", "invalid-number"])
+def test_with_only_empty_nothing_but_an_empty_reply_is_a_problem(raw, cited, invalid, reason, expected):
+    note = reply_problem(raw, cited, invalid, 2, reason, only_empty=True)
+    assert (expected in note) if expected else note == ""
+
+
+def test_with_only_empty_an_empty_reply_is_retried_and_an_uncited_one_is_not():
+    chat = ScriptedChat("", "Section 37B allows it.")
+    result = answer_from_sources("Q?", [S37B], [chat], retries=2, only_empty=True)
+    assert len(chat.prompts) == 2 and result.refused and result.attempts == 2
+    assert "ran out of its output limit" in chat.prompts[1][1]
+
+
 def test_an_uncited_reply_is_sent_back_once_with_the_note_and_the_reply():
     chat = ScriptedChat("Section 37B allows it.", "Section 37B allows it [1].")
     result = answer_from_sources("Q?", [S37B], [chat], "improved", retries=1)

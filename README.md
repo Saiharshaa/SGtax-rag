@@ -89,14 +89,15 @@ Results on 79 held-out answerable questions, with Gemini embeddings and the same
 | Answers judged correct (qwen2.5:7b, blind; partial = half) | 0.513 | 0.506 (no significant difference) |
 | Answers judged correct (qwen3:8b, a reasoning model, under the 2,000-token cap) | 0.728; a second round 0.747 | 0.753; a second round 0.766 (no significant difference in either) |
 
-Not yet tested with the app's own models (gpt-oss-120b, Gemini Flash), so the app still uses `improved`. To
-try it, change `IMPROVED` in `app.py` to `("Structure-aware (this project)", "improved_astar", "improved_bm25")`, or:
+Not yet tested with the app's own models (gpt-oss-120b, Gemini Flash), so the app still uses `improved` by
+default. To try it, turn on **Deep Tax Search** in the app (without embeddings it falls back to
+`improved_astar_bm25`, BM25 with the same expansion), or:
 
 ```bash
 python scripts/ask.py --config improved_astar --sources "Can a loss-making company transfer its losses to a sister company?"
 ```
 
-### Optional: reply retry (`retries`)
+### Reply retry (`retries`)
 
 `answer_from_sources` (and `answer`, `answer_best_available`) take `retries`, default 0. An unusable reply is sent
 back to the model with a note saying what to fix:
@@ -106,7 +107,10 @@ back to the model with a note saying what to fix:
 
 The model's own refusal is never retried, and the last reply stands. `GroqChat` and `GeminiChat` now record
 `last_finish_reason`, which is how a reply cut off at the cap is caught: with gpt-oss-120b it can be empty when
-the reasoning uses up the whole cap. The app keeps `retries=0`.
+the reasoning uses up the whole cap. With `only_empty=True`, only an empty reply is sent back.
+
+In the app, an empty reply is always sent back, at most twice. The **Retry** toggle also sends back a reply that
+was cut off at the cap, cites no source, or cites a source that doesn't exist.
 
 Tested with qwen3:8b as a local stand-in for gpt-oss-120b (the same prompt, 2,000-token cap and citation checker),
 up to 2 retries, on the 79 held-out answerable test questions and the 20 the corpus can't answer. Answers were
@@ -123,10 +127,13 @@ The comparisons were fixed before any answer existed.
 
 - The retry made 4 test answers better and none worse (dev: 3 and none). That is not significant: Wilcoxon p
   0.125, Holm-adjusted 0.375.
-- Every gain came from a reply that ran out at the 2,000-token cap, mostly an empty one. Of the 8 such refusals it
-  retried on test, 2 became correct, 2 partial, 2 wrong, and 2 stayed refused.
-- So whether it helps the app depends on how often gpt-oss-120b hits the cap, which hasn't been measured. Simply
-  raising the cap wasn't tested either.
+- It retried 8 test answers that had become refusals: 7 empty replies at the 2,000-token cap and 1 with no
+  citation. 2 became correct, 2 partial, 2 wrong, and 2 stayed refused.
+- Every reply that hit the cap in these runs was empty. Replaying the recorded attempts with only empty replies
+  sent back gives 0.778 on test (dev 0.775, against 0.738 without a retry), so the app's default keeps nearly all
+  of the gain. It answers 5 more test questions, 2 of them wrongly (the full retry: 6 more, 2 wrongly).
+- How much this helps the app depends on how often gpt-oss-120b's reasoning uses up the cap, which hasn't been
+  measured. Simply raising the cap wasn't tested either.
 
 **Also tested, and left out.** A multi-search "Deep Tax Research" mode was tested the same way. It planned up to 3
 searches, merged them with the question's ranking, ran the A* expansion, checked for gaps and answered once. It

@@ -95,13 +95,14 @@ def render_citations(raw: str, sources: list[Chunk]) -> tuple[str, list[Chunk], 
 
 
 def reply_problem(raw: str, cited: list[Chunk], invalid: list[int], n_sources: int, finish_reason=None,
-                  attempt: int = 1, retries: int = 1) -> str:
+                  attempt: int = 1, retries: int = 1, only_empty: bool = False) -> str:
     """A note for the model when its reply can't be used as it is, or "" when it can: the reply is empty or stopped
-    at the token cap (reasoning included), cites no source by number, or cites numbers that aren't sources. The
-    model's own refusal is a valid reply. The note names the retry (`attempt` of `retries`), so a second retry after
-    the same problem is never the identical, deterministic call again."""
+    at the token cap (reasoning included), cites no source by number, or cites numbers that aren't sources. With
+    `only_empty`, only an empty reply counts. The model's own refusal is a valid reply. The note names the retry
+    (`attempt` of `retries`), so a second retry after the same problem is never the identical, deterministic call
+    again."""
     text = raw.strip()
-    if text == REFUSAL:
+    if text == REFUSAL or (only_empty and text):
         return ""
     notes = []
     capped = not text or str(finish_reason).lower() in ("length", "max_tokens", "finishreason.max_tokens")
@@ -124,9 +125,10 @@ def reply_problem(raw: str, cited: list[Chunk], invalid: list[int], n_sources: i
 
 
 def answer_from_sources(question: str, sources: list[Chunk], models: list[ChatModel], config: str = "",
-                        retries: int = 0) -> Answer:
+                        retries: int = 0, only_empty: bool = False) -> Answer:
     """Generate from these numbered sources and check the citations. With `retries`, a reply that can't be used
-    (reply_problem) is sent back with a note, at most that many times; the last reply stands."""
+    (reply_problem) is sent back with a note, at most that many times; the last reply stands. With `only_empty`,
+    only an empty reply is sent back: gpt-oss-120b's reasoning can use up the whole token cap."""
     if not sources:
         return Answer(question, REFUSAL, sources, refused=True, config=config)
     prompt = user = build_prompt(question, sources)
@@ -134,7 +136,8 @@ def answer_from_sources(question: str, sources: list[Chunk], models: list[ChatMo
         raw, model = complete_with_fallback(models, SYSTEM_PROMPT, prompt)
         text, cited, invalid = render_citations(raw, sources)
         reason = next((getattr(m, "last_finish_reason", None) for m in models if m.name == model), None)
-        note = reply_problem(raw, cited, invalid, len(sources), reason, attempt + 1, retries) if attempt < retries else ""
+        note = (reply_problem(raw, cited, invalid, len(sources), reason, attempt + 1, retries, only_empty)
+                if attempt < retries else "")
         if not note:
             break
         prompt = user + note
@@ -145,21 +148,21 @@ def answer_from_sources(question: str, sources: list[Chunk], models: list[ChatMo
 
 
 def answer(question: str, retriever: Retriever, models: list[ChatModel], config: str = "improved",
-           context_tokens: int = CONTEXT_TOKENS, retries: int = 0) -> Answer:
+           context_tokens: int = CONTEXT_TOKENS, retries: int = 0, only_empty: bool = False) -> Answer:
     """Retrieve, generate, and check citations. The expanded chunks (cited sections, or A*'s additions) are extra
     sources."""
     result = retriever.search(question, config, budget=context_tokens)
     sources = [hit.chunk for hit in result.hits] + result.expanded
-    return answer_from_sources(question, sources, models, config, retries)
+    return answer_from_sources(question, sources, models, config, retries, only_empty)
 
 
 def answer_best_available(question: str, retriever: Retriever, models: list[ChatModel], config: str = "improved",
                           fallback: str = "improved_bm25", context_tokens: int = CONTEXT_TOKENS,
-                          retries: int = 0) -> tuple[Answer, str | None]:
+                          retries: int = 0, only_empty: bool = False) -> tuple[Answer, str | None]:
     """Answer with `config`, or with `fallback` (BM25 only) when dense search can't run: the index is still
     being built, the embedding quota is used up, or the embedding API fails. Returns the answer and why it
     fell back (None if it didn't)."""
     try:
-        return answer(question, retriever, models, config, context_tokens, retries), None
+        return answer(question, retriever, models, config, context_tokens, retries, only_empty), None
     except DENSE_UNAVAILABLE as error:
-        return answer(question, retriever, models, fallback, context_tokens, retries), str(error)
+        return answer(question, retriever, models, fallback, context_tokens, retries, only_empty), str(error)
