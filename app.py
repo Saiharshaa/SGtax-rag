@@ -18,7 +18,6 @@ from rag.display import RETRIEVAL_LABELS, excerpt, markdown_safe
 from rag.embed import MissingApiKey
 from rag.generate import Answer, answer_best_available
 from rag.llm import LLMUnavailable, default_models
-from rag.research import research_best_available
 from rag.retrieve import Retriever
 
 ROOT = Path(__file__).resolve().parent
@@ -30,7 +29,6 @@ EXAMPLES = [
 # (tab label, retrieval config, fallback config when embeddings are unavailable)
 IMPROVED = ("Structure-aware (this project)", "improved", "improved_bm25")
 BASELINE = ("Naive baseline", "baseline", "naive_bm25")
-RESEARCH = ("Deep Tax Research", "improved_astar", "improved_bm25")
 
 load_dotenv(ROOT / ".env")
 st.set_page_config(page_title="SG Tax Answers", page_icon=":material/gavel:", layout="centered")
@@ -57,16 +55,13 @@ def pipeline() -> tuple[Retriever, list]:
     return retriever, default_models()
 
 
-def run(question: str, retriever: Retriever, models: list, compare: bool, deep: bool = False) -> list[dict]:
-    runs = [RESEARCH if deep else IMPROVED] + ([BASELINE] if compare else [])
+def run(question: str, retriever: Retriever, models: list, compare: bool) -> list[dict]:
+    runs = [IMPROVED, BASELINE] if compare else [IMPROVED]
     results = []
     for label, config, fallback in runs:
         started = time.monotonic()
         try:
-            if label == RESEARCH[0]:
-                result, _ = research_best_available(question, retriever, models, config, fallback)
-            else:
-                result, _ = answer_best_available(question, retriever, models, config, fallback)
+            result, _ = answer_best_available(question, retriever, models, config, fallback)
             results.append({"label": label, "answer": result, "seconds": time.monotonic() - started})
         except LLMUnavailable:
             results.append({"label": label, "error": "Groq and Gemini both failed to answer. Try again in a minute."})
@@ -80,10 +75,6 @@ def show_answer(result: Answer, seconds: float) -> None:
         st.markdown(markdown_safe(result.text))
     model = result.model.split(":", 1)[-1] if result.model else "no model called"
     st.caption(f"{model} · {seconds:.1f} s · {RETRIEVAL_LABELS.get(result.config, result.config)}")
-    if result.trace:
-        with st.expander("Research steps"):
-            for step in result.trace:
-                st.markdown(f"- {markdown_safe(step)}")
     if result.cited:
         with st.expander(f"Sources cited ({len(result.cited)})"):
             for chunk in result.cited:
@@ -119,9 +110,6 @@ except (MissingApiKey, FileNotFoundError) as error:
 compare = st.toggle("Compare with the naive baseline",
                     help="The same model given 500-token chunks without section structure: the approach this "
                          "project measures itself against.")
-deep = st.toggle("Deep Tax Research",
-                 help="Plans the searches the question needs, follows the references and checks for gaps before "
-                      "answering. Slower, and up to six searches instead of one.")
 history = st.session_state.setdefault("history", [])
 
 question = st.chat_input("Ask a Singapore corporate income tax question")
@@ -142,7 +130,7 @@ if question:
         st.markdown(markdown_safe(question))
     with st.chat_message("assistant"):
         with st.spinner("Searching the Act and the e-Tax guides…"):
-            results = run(question, retriever, models, compare, deep)
+            results = run(question, retriever, models, compare)
         show_results(results)
     history.append({"question": question, "results": results})
     st.rerun()   # redraw from history, so the example buttons go once a question is asked

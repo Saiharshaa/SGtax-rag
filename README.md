@@ -87,7 +87,7 @@ Results on 79 held-out answerable questions, with Gemini embeddings and the same
 | References left unresolved in the context (lower is better) | 19.9 | 26.0 (its additions bring their own) |
 | Tokens | 2,753 | 2,766 |
 | Answers judged correct (qwen2.5:7b, blind; partial = half) | 0.513 | 0.506 (no significant difference) |
-| Answers judged correct (qwen3:8b, a reasoning model, under the 2,000-token cap) | 0.728 | 0.753 (no significant difference) |
+| Answers judged correct (qwen3:8b, a reasoning model, under the 2,000-token cap) | 0.728; a second round 0.747 | 0.753; a second round 0.766 (no significant difference in either) |
 
 Not yet tested with the app's own models (gpt-oss-120b, Gemini Flash), so the app still uses `improved`. To
 try it, change `IMPROVED` in `app.py` to `("Structure-aware (this project)", "improved_astar", "improved_bm25")`, or:
@@ -96,45 +96,44 @@ try it, change `IMPROVED` in `app.py` to `("Structure-aware (this project)", "im
 python scripts/ask.py --config improved_astar --sources "Can a loss-making company transfer its losses to a sister company?"
 ```
 
-### Optional: Deep Tax Research
+### Optional: reply retry (`retries`)
 
-An answer mode that searches more than once before answering ([`rag/research.py`](rag/research.py)). The app
-has a "Deep Tax Research" toggle for it, off by default.
-
-1. The model lists up to 3 searches for provisions the question needs that a search for the whole question
-   might miss.
-2. Their rankings are merged with the question's own (RRF, the question's ranking counted twice) and cut to the
-   usual 2,500 tokens. The question's ranking alone gives exactly `improved`'s hits.
-3. The A* dependency expansion follows the merged hits' references, as in `improved_astar`.
-4. The model names up to 2 things the sources still miss. These are searched, and steps 2 and 3 are redone.
-5. The usual answer call: the same prompt, numbered sources, citation check and refusal. The app lists the
-   searches under "Research steps".
-
-It costs two more chat calls (short, JSON) and up to five more searches per question. With Gemini search,
-each search is one embedding call on the free tier (1,000 a day). Without dense search it falls back to the
-plain BM25 answer, before any planning call.
-
-`answer_from_sources` (and `answer`, `answer_best_available`, `research`) also take `retries`. An unusable reply
-is sent back with a note saying what to fix:
+`answer_from_sources` (and `answer`, `answer_best_available`) take `retries`, default 0. An unusable reply is sent
+back to the model with a note saying what to fix:
 - it stopped at the token cap, reasoning included, before finishing;
 - it cites no source by number;
 - it cites numbers that aren't sources.
 
-The model's own refusal is never retried. The app keeps `retries=0`.
+The model's own refusal is never retried, and the last reply stands. `GroqChat` and `GeminiChat` now record
+`last_finish_reason`, which is how a reply cut off at the cap is caught: with gpt-oss-120b it can be empty when
+the reasoning uses up the whole cap. The app keeps `retries=0`.
 
-**Not shown to help yet.** It was tested with qwen3:8b as a local stand-in for gpt-oss-120b, on 40 answerable
-dev questions, with the same prompt, cap and citation checker. Answers were judged blind; partial counts as half:
+Tested with qwen3:8b as a local stand-in for gpt-oss-120b (the same prompt, 2,000-token cap and citation checker),
+up to 2 retries, on the 79 held-out answerable test questions and the 20 the corpus can't answer. Answers were
+judged blind by two LLM judges, with a third on each disagreement (agreement 0.94, κ 0.88); partial counts as half.
+The comparisons were fixed before any answer existed.
 
-| Answer mode | Correct (all) | Answered wrongly | Chat calls per question |
+| Test split | `improved` (the app today) | `improved_astar` | `improved` with up to 2 retries |
 |---|---|---|---|
-| `improved` (the app today) | 0.738 | 3 | 1 |
-| `improved_astar` | 0.762 | 2 | 1 |
-| Deep Tax Research | 0.725 | 5 | 3 |
-| `improved` with up to 2 retries | 0.787 | 3 | 1.2 |
+| Answers judged correct (all 79; partial = half) | 0.747 | 0.766 | 0.785 |
+| Questions answered (of 79) | 71 | 70 | 77 |
+| Answered wrongly | 5 | 5 | 7 |
+| Out-of-scope questions answered (of 20; lower is better) | 3 | 1 | 3 |
+| Chat calls per question | 1.0 | 1.0 | 1.1 |
 
-None of these differences is significant on 40 questions. Deep Tax Research did not find more of the gold
-sections than `improved`'s own ranking: 0.854 against 0.917. Its extra searches displace some of the best
-hits. The run on the held-out test split (79 answerable questions) is not finished yet.
+- The retry made 4 test answers better and none worse (dev: 3 and none). That is not significant: Wilcoxon p
+  0.125, Holm-adjusted 0.375.
+- Every gain came from a reply that ran out at the 2,000-token cap, mostly an empty one. Of the 8 such refusals it
+  retried on test, 2 became correct, 2 partial, 2 wrong, and 2 stayed refused.
+- So whether it helps the app depends on how often gpt-oss-120b hits the cap, which hasn't been measured. Simply
+  raising the cap wasn't tested either.
+
+**Also tested, and left out.** A multi-search "Deep Tax Research" mode was tested the same way. It planned up to 3
+searches, merged them with the question's ranking, ran the A* expansion, checked for gaps and answered once. It
+scored 0.722 on test and 0.725 on dev, against 0.747 and 0.738 for `improved`, with 3 chat calls per question.
+A version in which the model picks its searches step by step, with retries, scored highest (0.823 on test). But
+most of its lead came from the retry, and it was singled out after the results were in, so it would need its own
+test on new questions.
 
 ## Demo video
 

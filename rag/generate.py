@@ -59,7 +59,6 @@ class Answer:
     raw: str = ""                 # model output before rewriting, for debugging and evaluation
     config: str = ""              # retrieval config the sources came from
     attempts: int = 1             # model calls for the answer (more than one after a retry)
-    trace: list[str] = field(default_factory=list)   # Deep Tax Research: what it searched for, step by step
 
 
 def format_source(n: int, chunk: Chunk) -> str:
