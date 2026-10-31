@@ -96,6 +96,46 @@ try it, change `IMPROVED` in `app.py` to `("Structure-aware (this project)", "im
 python scripts/ask.py --config improved_astar --sources "Can a loss-making company transfer its losses to a sister company?"
 ```
 
+### Optional: Deep Tax Research
+
+An answer mode that searches more than once before answering ([`rag/research.py`](rag/research.py)). The app
+has a "Deep Tax Research" toggle for it, off by default.
+
+1. The model lists up to 3 searches for provisions the question needs that a search for the whole question
+   might miss.
+2. Their rankings are merged with the question's own (RRF, the question's ranking counted twice) and cut to the
+   usual 2,500 tokens. The question's ranking alone gives exactly `improved`'s hits.
+3. The A* dependency expansion follows the merged hits' references, as in `improved_astar`.
+4. The model names up to 2 things the sources still miss. These are searched, and steps 2 and 3 are redone.
+5. The usual answer call: the same prompt, numbered sources, citation check and refusal. The app lists the
+   searches under "Research steps".
+
+It costs two more chat calls (short, JSON) and up to five more searches per question. With Gemini search,
+each search is one embedding call on the free tier (1,000 a day). Without dense search it falls back to the
+plain BM25 answer, before any planning call.
+
+`answer_from_sources` (and `answer`, `answer_best_available`, `research`) also take `retries`. An unusable reply
+is sent back with a note saying what to fix:
+- it stopped at the token cap, reasoning included, before finishing;
+- it cites no source by number;
+- it cites numbers that aren't sources.
+
+The model's own refusal is never retried. The app keeps `retries=0`.
+
+**Not shown to help yet.** It was tested with qwen3:8b as a local stand-in for gpt-oss-120b, on 40 answerable
+dev questions, with the same prompt, cap and citation checker. Answers were judged blind; partial counts as half:
+
+| Answer mode | Correct (all) | Answered wrongly | Chat calls per question |
+|---|---|---|---|
+| `improved` (the app today) | 0.738 | 3 | 1 |
+| `improved_astar` | 0.762 | 2 | 1 |
+| Deep Tax Research | 0.725 | 5 | 3 |
+| `improved` with up to 2 retries | 0.787 | 3 | 1.2 |
+
+None of these differences is significant on 40 questions. Deep Tax Research did not find more of the gold
+sections than `improved`'s own ranking: 0.854 against 0.917. Its extra searches displace some of the best
+hits. The run on the held-out test split (79 answerable questions) is not finished yet.
+
 ## Demo video
 
 [`results/demo.mp4`](results/demo.mp4) (3 min, narrated) walks through the app; the narration with timestamps
