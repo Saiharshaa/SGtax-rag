@@ -62,6 +62,40 @@ Full tables and caveats: [`results/metrics.md`](results/metrics.md) and [`docs/P
 section: on these questions, dense search alone did best on plain-language questions, hybrid on section
 references.
 
+### Optional: A* dependency expansion (`improved_astar`)
+
+`improved` appends the first chunk of up to 3 sections its hits cite. `improved_astar` keeps the same hits and
+instead lets an A* search ([`rag/graph.py`](rag/graph.py)) add what they depend on, cheapest first, within the
+same ~450 extra tokens:
+
+- the subsections and sections they refer to;
+- the subsection that defines their terms ("In this section ...");
+- the earlier piece of a split provision.
+
+It also follows the dependencies of what it added, while the allowance lasts. It cannot cover them all, so
+its context ends up with more unresolved references than `improved`'s. It needs no embeddings: the graph is
+built from the chunks' text on first use (0.2 s, under 10 MB). It adapts the A* search of Experiment 3 in
+[Legal_RAG_Exp](https://github.com/Khawpuneiei/Legal_RAG_Exp) (`docs/experiment3-results.md`, R6) to this
+corpus (condition R6y).
+
+Results on 79 held-out answerable questions, with Gemini embeddings and the same hits for both:
+
+| Context sent to the model | `improved` | `improved_astar` |
+|---|---|---|
+| Gold sections and paragraphs in it | 0.918 | 0.926 |
+| The hits' own cross-references, definitions and split pieces resolved in it | 0.499 | **0.706** |
+| References left unresolved in the context (lower is better) | 19.9 | 26.0 (its additions bring their own) |
+| Tokens | 2,753 | 2,766 |
+| Answers judged correct (qwen2.5:7b, blind; partial = half) | 0.513 | 0.506 (no significant difference) |
+| Answers judged correct (qwen3:8b, a reasoning model, under the 2,000-token cap) | 0.728 | 0.753 (no significant difference) |
+
+Not yet tested with the app's own models (gpt-oss-120b, Gemini Flash), so the app still uses `improved`. To
+try it, change `IMPROVED` in `app.py` to `("Structure-aware (this project)", "improved_astar", "improved_bm25")`, or:
+
+```bash
+python scripts/ask.py --config improved_astar --sources "Can a loss-making company transfer its losses to a sister company?"
+```
+
 ## Demo video
 
 [`results/demo.mp4`](results/demo.mp4) (3 min, narrated) walks through the app; the narration with timestamps

@@ -3,6 +3,7 @@ exact-section boost and optional one-hop expansion along cross-references.
 
 Named configs are the rows of the evaluation table. `baseline` is the naive-chunk dense
 retriever the project argues against; `improved` is structured chunks + hybrid + section boost.
+`improved_astar` is `improved` with the one-hop expansion replaced by A* dependency expansion (rag/graph.py).
 
     retriever = Retriever()
     result = retriever.search("Can a company deduct expenses before it started business?", "improved")
@@ -16,6 +17,7 @@ from rag.chunk import count_tokens
 from rag.dense import DenseIndex
 from rag.embed import Embedder, GeminiEmbedder
 from rag.fusion import RRF_K, rrf
+from rag.graph import DependencyGraph
 from rag.refs import find_section_refs
 from rag.schema import Chunk, load_chunks
 
@@ -49,6 +51,7 @@ class RetrievalConfig:
     dense: bool
     section_boost: bool = False
     expand_refs: bool = False
+    expand_astar: bool = False   # A* dependency expansion (rag/graph.py) instead of the one-hop one
     # Use BM25 only when the question names a section. On the eval set, dense alone did best on plain-language
     # questions (Recall@5 0.66 vs 0.57 hybrid) and hybrid on those naming a section (0.67-0.75 vs 0.50-0.56).
     bm25_only_for_section_refs: bool = False
@@ -68,6 +71,8 @@ CONFIGS = {
 CONFIGS["baseline"] = CONFIGS["naive_dense"]
 CONFIGS["improved"] = RetrievalConfig("structured", bm25=True, dense=True, section_boost=True, expand_refs=True,
                                       bm25_only_for_section_refs=True)
+CONFIGS["improved_astar"] = RetrievalConfig("structured", bm25=True, dense=True, section_boost=True, expand_astar=True,
+                                            bm25_only_for_section_refs=True)
 # What the app falls back to when dense search is unavailable (index still building, embedding quota used up)
 CONFIGS["improved_bm25"] = RetrievalConfig("structured", bm25=True, dense=False, section_boost=True, expand_refs=True)
 
@@ -85,7 +90,7 @@ class Hit:
 class RetrievalResult:
     query: str
     hits: list[Hit]
-    expanded: list[Chunk] = field(default_factory=list)   # cited sections, extra context for generation
+    expanded: list[Chunk] = field(default_factory=list)   # cited sections (or A*'s additions): extra context
     query_sections: list[str] = field(default_factory=list)
 
 
@@ -94,6 +99,7 @@ class Corpus:
 
     def __init__(self, name: str, chunks: list[Chunk], bm25: BM25Index, dense: DenseIndex | None = None):
         self.name, self.bm25, self.dense = name, bm25, dense
+        self._graph: DependencyGraph | None = None
         self.chunks = {chunk.chunk_id: chunk for chunk in chunks}
         self.order = {chunk.chunk_id: i for i, chunk in enumerate(chunks)}
         self.by_section: dict[str, list[str]] = {}       # "14R" -> chunk ids in document order
@@ -138,6 +144,12 @@ class Corpus:
                 for id_ in sorted(found, key=lambda id_: (-scores[id_], self.order[id_]))[:MAX_BOOSTED]:
                     bonuses[id_] = SECTION_BOOST
         return bonuses, [ref.canonical for ref in refs]
+
+    def dependency_graph(self) -> DependencyGraph:
+        """Built from the chunks on first use."""
+        if self._graph is None:
+            self._graph = DependencyGraph(list(self.chunks.values()))
+        return self._graph
 
     def expand(self, hits: list[Chunk]) -> list[Chunk]:
         """First chunk of each section the hits cite that isn't already among them (one hop, capped)."""
@@ -201,5 +213,8 @@ class Retriever:
         hits = [Hit(corpus.chunks[id_], scores[id_], positions.get("bm25", {}).get(id_),
                     positions.get("dense", {}).get(id_), id_ in bonuses)
                 for id_ in best]
-        expanded = corpus.expand([hit.chunk for hit in hits]) if cfg.expand_refs else []
+        if cfg.expand_astar:
+            expanded = corpus.dependency_graph().expand([hit.chunk for hit in hits])
+        else:
+            expanded = corpus.expand([hit.chunk for hit in hits]) if cfg.expand_refs else []
         return RetrievalResult(query, hits, expanded, sections)
