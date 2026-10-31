@@ -62,6 +62,80 @@ Full tables and caveats: [`results/metrics.md`](results/metrics.md) and [`docs/P
 section: on these questions, dense search alone did best on plain-language questions, hybrid on section
 references.
 
+### Optional: A* dependency expansion (`improved_astar`)
+
+`improved` appends the first chunk of up to 3 sections its hits cite. `improved_astar` keeps the same hits and
+instead lets an A* search ([`rag/graph.py`](rag/graph.py)) add what they depend on, cheapest first, within the
+same ~450 extra tokens:
+
+- the subsections and sections they refer to;
+- the subsection that defines their terms ("In this section ...");
+- the earlier piece of a split provision.
+
+It also follows the dependencies of what it added, while the allowance lasts. It cannot cover them all, so
+its context ends up with more unresolved references than `improved`'s. It needs no embeddings: the graph is
+built from the chunks' text on first use (0.2 s, under 10 MB). It adapts the A* search of Experiment 3 in
+[Legal_RAG_Exp](https://github.com/Khawpuneiei/Legal_RAG_Exp) (`docs/experiment3-results.md`, R6) to this
+corpus (condition R6y).
+
+Results on 79 held-out answerable questions, with Gemini embeddings and the same hits for both:
+
+| Context sent to the model | `improved` | `improved_astar` |
+|---|---|---|
+| Gold sections and paragraphs in it | 0.918 | 0.926 |
+| The hits' own cross-references, definitions and split pieces resolved in it | 0.499 | **0.706** |
+| References left unresolved in the context (lower is better) | 19.9 | 26.0 (its additions bring their own) |
+| Tokens | 2,753 | 2,766 |
+| Answers judged correct (qwen2.5:7b, blind; partial = half) | 0.513 | 0.506 (no significant difference) |
+| Answers judged correct (qwen3:8b, a reasoning model, under the 2,000-token cap) | 0.728 | 0.753 (no significant difference) |
+
+Not yet tested with the app's own models (gpt-oss-120b, Gemini Flash), so the app still uses `improved`. To
+try it, change `IMPROVED` in `app.py` to `("Structure-aware (this project)", "improved_astar", "improved_bm25")`, or:
+
+```bash
+python scripts/ask.py --config improved_astar --sources "Can a loss-making company transfer its losses to a sister company?"
+```
+
+### Optional: Deep Tax Research
+
+An answer mode that searches more than once before answering ([`rag/research.py`](rag/research.py)). The app
+has a "Deep Tax Research" toggle for it, off by default.
+
+1. The model lists up to 3 searches for provisions the question needs that a search for the whole question
+   might miss.
+2. Their rankings are merged with the question's own (RRF, the question's ranking counted twice) and cut to the
+   usual 2,500 tokens. The question's ranking alone gives exactly `improved`'s hits.
+3. The A* dependency expansion follows the merged hits' references, as in `improved_astar`.
+4. The model names up to 2 things the sources still miss. These are searched, and steps 2 and 3 are redone.
+5. The usual answer call: the same prompt, numbered sources, citation check and refusal. The app lists the
+   searches under "Research steps".
+
+It costs two more chat calls (short, JSON) and up to five more searches per question. With Gemini search,
+each search is one embedding call on the free tier (1,000 a day). Without dense search it falls back to the
+plain BM25 answer, before any planning call.
+
+`answer_from_sources` (and `answer`, `answer_best_available`, `research`) also take `retries`. An unusable reply
+is sent back with a note saying what to fix:
+- it stopped at the token cap, reasoning included, before finishing;
+- it cites no source by number;
+- it cites numbers that aren't sources.
+
+The model's own refusal is never retried. The app keeps `retries=0`.
+
+**Not shown to help yet.** It was tested with qwen3:8b as a local stand-in for gpt-oss-120b, on 40 answerable
+dev questions, with the same prompt, cap and citation checker. Answers were judged blind; partial counts as half:
+
+| Answer mode | Correct (all) | Answered wrongly | Chat calls per question |
+|---|---|---|---|
+| `improved` (the app today) | 0.738 | 3 | 1 |
+| `improved_astar` | 0.762 | 2 | 1 |
+| Deep Tax Research | 0.725 | 5 | 3 |
+| `improved` with up to 2 retries | 0.787 | 3 | 1.2 |
+
+None of these differences is significant on 40 questions. Deep Tax Research did not find more of the gold
+sections than `improved`'s own ranking: 0.854 against 0.917. Its extra searches displace some of the best
+hits. The run on the held-out test split (79 answerable questions) is not finished yet.
+
 ## Demo video
 
 [`results/demo.mp4`](results/demo.mp4) (3 min, narrated) walks through the app; the narration with timestamps

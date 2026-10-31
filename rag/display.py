@@ -6,6 +6,8 @@ EXCERPT_CHARS = 600   # sources are shown as short excerpts, never whole documen
 
 RETRIEVAL_LABELS = {
     "improved": "structure-aware chunks, Gemini embeddings (+ BM25 and section boost when a section is named)",
+    "improved_astar": "structure-aware chunks, Gemini embeddings (+ BM25 and section boost when a section is named), "
+                      "A* dependency expansion",
     "improved_bm25": "structure-aware chunks, BM25 + section boost (embeddings unavailable)",
     "baseline": "naive 500-token chunks, Gemini embeddings",
     "naive_bm25": "naive 500-token chunks, BM25 (embeddings unavailable)",

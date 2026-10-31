@@ -58,6 +58,8 @@ class Answer:
     invalid_citations: list[int] = field(default_factory=list)   # cited numbers that weren't sources
     raw: str = ""                 # model output before rewriting, for debugging and evaluation
     config: str = ""              # retrieval config the sources came from
+    attempts: int = 1             # model calls for the answer (more than one after a retry)
+    trace: list[str] = field(default_factory=list)   # Deep Tax Research: what it searched for, step by step
 
 
 def format_source(n: int, chunk: Chunk) -> str:
@@ -93,28 +95,72 @@ def render_citations(raw: str, sources: list[Chunk]) -> tuple[str, list[Chunk], 
     return re.sub(r" +([.,;:])", r"\1", text).strip(), cited, invalid
 
 
-def answer(question: str, retriever: Retriever, models: list[ChatModel], config: str = "improved",
-           context_tokens: int = CONTEXT_TOKENS) -> Answer:
-    """Retrieve, generate, and check citations. The expanded (cross-referenced) chunks are extra sources."""
-    result = retriever.search(question, config, budget=context_tokens)
-    sources = [hit.chunk for hit in result.hits] + result.expanded
+def reply_problem(raw: str, cited: list[Chunk], invalid: list[int], n_sources: int, finish_reason=None,
+                  attempt: int = 1, retries: int = 1) -> str:
+    """A note for the model when its reply can't be used as it is, or "" when it can: the reply is empty or stopped
+    at the token cap (reasoning included), cites no source by number, or cites numbers that aren't sources. The
+    model's own refusal is a valid reply. The note names the retry (`attempt` of `retries`), so a second retry after
+    the same problem is never the identical, deterministic call again."""
+    text = raw.strip()
+    if text == REFUSAL:
+        return ""
+    notes = []
+    capped = not text or str(finish_reason).lower() in ("length", "max_tokens", "finishreason.max_tokens")
+    if capped:
+        notes.append("Your previous attempt ran out of its output limit, reasoning included, before it finished the "
+                     "answer. Keep your reasoning short and write the answer.")
+    elif not cited:
+        notes.append("Your previous reply did not cite the sources by number, so it could not be used. Cite every "
+                     "statement with source numbers in square brackets, such as [2] or [1][3]. If the sources don't "
+                     "answer the question, reply with exactly the refusal sentence and nothing else.")
+    if invalid:
+        numbers = ", ".join(str(n) for n in dict.fromkeys(invalid))
+        notes.append(f"Your previous reply cited source numbers that don't exist ({numbers}). Cite only [1] to [{n_sources}].")
+    if not notes:
+        return ""
+    if capped and attempt == retries and attempt > 1:
+        notes.append("This is the last attempt: reason in a few sentences at most, then write the answer.")
+    previous = "" if capped else f"\n\nYour previous reply:\n<previous_reply>\n{text[:1500]}\n</previous_reply>"
+    return f"\n\nNote (retry {attempt} of {retries}): " + " ".join(notes) + previous
+
+
+def answer_from_sources(question: str, sources: list[Chunk], models: list[ChatModel], config: str = "",
+                        retries: int = 0) -> Answer:
+    """Generate from these numbered sources and check the citations. With `retries`, a reply that can't be used
+    (reply_problem) is sent back with a note, at most that many times; the last reply stands."""
     if not sources:
         return Answer(question, REFUSAL, sources, refused=True, config=config)
-    raw, model = complete_with_fallback(models, SYSTEM_PROMPT, build_prompt(question, sources))
-    text, cited, invalid = render_citations(raw, sources)
+    prompt = user = build_prompt(question, sources)
+    for attempt in range(retries + 1):
+        raw, model = complete_with_fallback(models, SYSTEM_PROMPT, prompt)
+        text, cited, invalid = render_citations(raw, sources)
+        reason = next((getattr(m, "last_finish_reason", None) for m in models if m.name == model), None)
+        note = reply_problem(raw, cited, invalid, len(sources), reason, attempt + 1, retries) if attempt < retries else ""
+        if not note:
+            break
+        prompt = user + note
     if not cited:
         return Answer(question, REFUSAL, sources, refused=True, model=model, invalid_citations=invalid, raw=raw,
-                      config=config)
-    return Answer(question, text, sources, cited, False, model, invalid, raw, config)
+                      config=config, attempts=attempt + 1)
+    return Answer(question, text, sources, cited, False, model, invalid, raw, config, attempts=attempt + 1)
+
+
+def answer(question: str, retriever: Retriever, models: list[ChatModel], config: str = "improved",
+           context_tokens: int = CONTEXT_TOKENS, retries: int = 0) -> Answer:
+    """Retrieve, generate, and check citations. The expanded chunks (cited sections, or A*'s additions) are extra
+    sources."""
+    result = retriever.search(question, config, budget=context_tokens)
+    sources = [hit.chunk for hit in result.hits] + result.expanded
+    return answer_from_sources(question, sources, models, config, retries)
 
 
 def answer_best_available(question: str, retriever: Retriever, models: list[ChatModel], config: str = "improved",
-                          fallback: str = "improved_bm25",
-                          context_tokens: int = CONTEXT_TOKENS) -> tuple[Answer, str | None]:
+                          fallback: str = "improved_bm25", context_tokens: int = CONTEXT_TOKENS,
+                          retries: int = 0) -> tuple[Answer, str | None]:
     """Answer with `config`, or with `fallback` (BM25 only) when dense search can't run: the index is still
     being built, the embedding quota is used up, or the embedding API fails. Returns the answer and why it
     fell back (None if it didn't)."""
     try:
-        return answer(question, retriever, models, config, context_tokens), None
+        return answer(question, retriever, models, config, context_tokens, retries), None
     except DENSE_UNAVAILABLE as error:
-        return answer(question, retriever, models, fallback, context_tokens), str(error)
+        return answer(question, retriever, models, fallback, context_tokens, retries), str(error)
