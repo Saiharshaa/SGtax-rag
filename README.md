@@ -49,6 +49,8 @@ Design decisions, each argued in [`docs/PLAN.md`](docs/PLAN.md):
 
 Retrieval and answers on 25 questions with gold sections and paragraphs, plus 3 the corpus can't answer.
 Full tables and caveats: [`results/metrics.md`](results/metrics.md) and [`docs/PLAN.md`](docs/PLAN.md).
+Methods from a legal RAG project (reranking, A* expansion, a skill playbook, retries, multi-search research)
+tested on 149 new held-out questions: [`results/experiments.md`](results/experiments.md).
 
 | Both searched with Gemini embeddings | naive 500-token chunks (`baseline`) | structure-aware chunks (`improved`) |
 |---|---|---|
@@ -136,11 +138,11 @@ The comparisons were fixed before any answer existed.
   measured. Simply raising the cap wasn't tested either.
 
 **Also tested, and left out.** A multi-search "Deep Tax Research" mode was tested the same way. It planned up to 3
-searches, merged them with the question's ranking, ran the A* expansion, checked for gaps and answered once. It
-scored 0.722 on test and 0.725 on dev, against 0.747 and 0.738 for `improved`, with 3 chat calls per question.
-A version in which the model picks its searches step by step, with retries, scored highest (0.823 on test). But
-most of its lead came from the retry, and it was singled out after the results were in, so it would need its own
-test on new questions.
+searches and ran up to 2 more for gaps it found, merged them with the question's ranking, ran the A* expansion and
+answered once. It scored 0.722 on test and 0.725 on dev, against 0.747 and 0.738 for `improved`, with 3 chat
+calls per question. A version in which the model picks its searches step by step, with retries, scored highest
+(0.823 on test). But without the retry it scored about the same as `improved` (0.753), and it was singled out
+after the results were in, so it would need its own test on new questions.
 
 ## Demo video
 
