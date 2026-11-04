@@ -31,6 +31,8 @@ class LLMUnavailable(RuntimeError):
 
 
 class GroqChat:
+    last_finish_reason = None   # of the latest reply: "length" when it stopped at MAX_ANSWER_TOKENS
+
     def __init__(self, api_key: str | None = None, model: str | None = None, client=None):
         self.model = model or os.environ.get("GROQ_MODEL") or GROQ_MODEL
         if client is None:
@@ -47,10 +49,14 @@ class GroqChat:
         response = self.client.chat.completions.create(
             model=self.model, temperature=0, max_completion_tokens=MAX_ANSWER_TOKENS,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}], **extra)
+        # "length": the cap was reached, often by the reasoning alone, which leaves the content empty
+        self.last_finish_reason = getattr(response.choices[0], "finish_reason", None)
         return response.choices[0].message.content or ""
 
 
 class GeminiChat:
+    last_finish_reason = None   # of the latest reply: MAX_TOKENS when it stopped at MAX_ANSWER_TOKENS
+
     def __init__(self, api_key: str | None = None, model: str | None = None, client=None):
         self.model = model or os.environ.get("GEMINI_CHAT_MODEL") or GEMINI_CHAT_MODEL
         if client is None:
@@ -67,7 +73,11 @@ class GeminiChat:
     def complete(self, system: str, user: str) -> str:
         config = types.GenerateContentConfig(system_instruction=system, temperature=0,
                                              max_output_tokens=MAX_ANSWER_TOKENS)
-        return self.client.models.generate_content(model=self.model, contents=user, config=config).text or ""
+        response = self.client.models.generate_content(model=self.model, contents=user, config=config)
+        candidates = getattr(response, "candidates", None) or []
+        reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+        self.last_finish_reason = getattr(reason, "name", reason)
+        return response.text or ""
 
 
 def default_models() -> list[ChatModel]:

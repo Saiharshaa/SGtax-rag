@@ -48,8 +48,9 @@ def main() -> None:
         print(f"sections named in the query: {', '.join(result.query_sections)}")
     for rank, hit in enumerate(result.hits, start=1):
         print(f"{rank:>2}. {hit.score:.4f}  {describe(hit)}")
+    label = "added" if CONFIGS[args.config].expand_astar else "cited"   # A* also adds definitions and split pieces
     for chunk in result.expanded:
-        print(f"    + cited: {chunk.cite} {chunk.heading}")
+        print(f"    + {label}: {chunk.cite} {chunk.heading}")
 
 
 if __name__ == "__main__":

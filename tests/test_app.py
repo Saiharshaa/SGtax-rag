@@ -28,3 +28,13 @@ def test_no_password_set_means_no_gate(monkeypatch):
     monkeypatch.delenv("APP_PASSWORD", raising=False)
     at = AppTest.from_file(APP, default_timeout=60).run()
     assert len(at.text_input) == 0
+
+
+def test_the_answer_options_start_off(monkeypatch):
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    if at.error:   # no index or keys on a CI machine
+        assert "isn't set up" in at.error[0].value
+        return
+    assert [(toggle.label, toggle.value) for toggle in at.toggle] == [
+        ("Compare with the naive baseline", False), ("Deep Tax Search", False), ("Retry", False)]
