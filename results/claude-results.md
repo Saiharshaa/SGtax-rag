@@ -1,7 +1,7 @@
 # Claude Opus 5.5 as the answer model, against the IRAS Bot, and on a public tax benchmark
 
 Three questions, tested on 7 November 2026 from [Legal_RAG_Exp](https://github.com/Khawpuneiei/Legal_RAG_Exp) on this repo's
-corpus, chunks, Gemini index, prompt and citation checker:
+corpus, chunks, Gemini index, prompt and citation checker. The IRAS Bot's out-of-scope check followed on 10 November.
 
 1. How good is this pipeline with a frontier answer model, Claude Opus 5.5, in place of the local qwen stand-ins of
    [`experiments.md`](experiments.md)?
@@ -106,6 +106,33 @@ tax chatbot found.
 - **chat.gov.sg is left out.** The whole-of-government assistant was also asked these questions and its answers were
   judged in the same pool, but its terms of use forbid benchmarking the service, so its results are not reported. The
   linked write-up says how that happened.
+
+### Out-of-scope questions (10 November 2026)
+
+Does the IRAS Bot decline what it has no basis to answer? Of the 20 out-of-scope test questions, 6 are on GST or stamp
+duty. IRAS covers both, so the right behaviour there is to answer, and they were left out. The other 14 are outside
+IRAS's remit:
+- Malaysian, UK or Hong Kong tax (5);
+- the Companies Act or ACRA (4);
+- CPF (2);
+- hotel licensing, building control and accounting standards (1 each).
+
+The method was the same as above: each question once, as written, in a fresh conversation. One thing changed: the
+chat window now asks for a topic before it shows the question box, so every question was asked under "Corporate
+Income Tax". The bot's replies are not published. Each reply falls into one of three groups, recognised by the bot's
+fixed wording, so no judging was needed.
+
+| IRAS Bot reply | Of 14 | Questions |
+|---|---|---|
+| Declined and pointed to ACRA | 3 | h059, h087, h144 |
+| Asked for a shorter question (at most 15 words), no answer | 8 | h025, h056, h088, h115, h116, h118, h145, h149 |
+| Answered, citing IRAS sources | 3 | h028 (Companies Act audit exemption), h060 (self-employed MediSave), h089 (CPF payment date) |
+
+- **This pipeline with Claude declined all 14** (and all 20).
+- **The IRAS Bot declined 3.** It answered none of the 5 foreign-tax questions. Its 3 answers are on Singapore topics
+  that IRAS pages cover. They were not graded, because out-of-scope questions have no gold answers.
+- **Its fallback is not a clear refusal.** All 14 questions are 18 to 30 words, over its 15-word guidance, and the same
+  fallback met 10 of the 25 answerable questions above.
 
 ## Claude alone on TaxCalcBench (US federal returns)
 
