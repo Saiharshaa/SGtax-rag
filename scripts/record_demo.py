@@ -282,10 +282,118 @@ def write_script(rec: Recorder, out: Path) -> None:
     out.write_text("\n".join(lines), encoding="utf-8")
 
 
+# --story grab: the same app seen from one business, Grab's Singapore tax team (an illustrative scenario).
+GRAB_SCENES = {
+    "intro": ("Scenario: Grab's Singapore tax team. Illustrative only: not advice to, or from, Grab.",
+              "Imagine the in-house tax team at Grab in Singapore. Grab runs several Singapore companies, for "
+              "ride-hailing, food delivery and payments, and many business decisions have a tax angle. Our assistant "
+              "answers those questions from the Income Tax Act and the IRAS e-Tax guides, and cites every point. "
+              "This is an illustrative scenario, not advice to or from Grab."),
+    "password": ("Password-protected: the index holds the text of the IRAS guides.",
+                 "The app is password protected, because its index holds the text of the IRAS guides."),
+    "group": ("Question 1: can a loss in one Singapore subsidiary offset profits in another?",
+              "First question. Grab's food-delivery company makes a loss this year, while ride-hailing is "
+              "profitable. Can the group use that loss now?"),
+    "group_result": ("Group relief: yes, if both are Singapore companies in the same group with the same year-end. "
+                     "Each condition is cited.",
+                     "Yes, through group relief, if both are Singapore companies in the same group with the same "
+                     "year-end. Each condition is cited to the IRAS guide, so the tax team can check it in seconds. "
+                     "For a group like Grab, that turns a start-up loss into a tax saving this year instead of later."),
+    "renovation": ("Question 2: what can be claimed for refurbishing offices?",
+                   "Second question. Grab is refurbishing its Singapore offices. How much can it claim, and when?"),
+    "renovation_result": ("Up to $300,000 per fixed three-year block, over three years or in one year by election.",
+                          "Up to three hundred thousand dollars for each fixed three-year block, deducted over three "
+                          "years, or in a single year by election. That is a cash-flow decision the finance team can "
+                          "make with the rule in front of them."),
+    "compare": ("Question 3: carry-back, compared with a naive baseline.",
+                "Third, a new subsidiary makes a loss. Can it carry it back, and by when must it decide? We compare "
+                "our assistant with a naive baseline: the same model and the same search, but plain 500-token chunks."),
+    "structured_answer": ("Structure-aware: cites the Act (s 37D) and the exact guide paragraphs.",
+                          "Our assistant cites the Act, section 37D, and the exact paragraphs of the carry-back "
+                          "guide: the deadline is the tax return, and the election can't be withdrawn."),
+    "naive_answer": ("Naive baseline: it can only cite the whole guide.",
+                     "The baseline reaches a similar answer, but can only cite the whole guide. A reviewer can't "
+                     "check that."),
+    "refuse": ("Out of scope: GST is not in our sources, so it refuses.",
+               "Finally, a GST question. GST is outside our sources, so the assistant refuses instead of guessing."),
+    "refused": ("Refused, not guessed.", "It declines, and says why."),
+    "end": ("", "For a business like Grab, that means faster answers on reliefs such as group relief, refurbishment "
+                "deductions and loss carry-back, each traceable to the law. On twenty-five test questions, with the "
+                "same search and the same amount of context, our structure-aware chunks found 81 percent of the right "
+                "sources against 67 percent for naive chunks. Thank you for watching."),
+}
+GRAB_END_CARD = """
+<h2>What it means for a business like Grab</h2>
+<table>
+<tr><th>Decision</th><th>Relief the assistant finds, with citations</th></tr>
+<tr><td>Loss in a new subsidiary</td><td>Group relief to profitable sister companies (s 37B)</td></tr>
+<tr><td>Office refurbishment</td><td>Up to $300,000 per three-year block (s 14N)</td></tr>
+<tr><td>Loss in a down year</td><td>Carry back to the previous year (s 37D)</td></tr>
+</table>
+<h2>Measured on 25 questions, same Gemini search</h2>
+<table>
+<tr><th></th><th>Naive chunks</th><th>Structure-aware</th></tr>
+<tr><td>Right sources found, same context</td><td>{naive_recall}</td><td><b>{structured_recall}</b></td></tr>
+<tr><td>Citations naming an exact section or paragraph</td><td>{naive_exact}</td><td><b>{structured_exact}</b></td></tr>
+</table>
+<p>Illustrative scenario only; not tax advice. Results and caveats: results/metrics.md and docs/PLAN.md</p>
+"""
+
+
+def walkthrough_grab(rec: Recorder) -> None:
+    page = rec.page
+    page.goto(f"http://127.0.0.1:{PORT}")
+    page.get_by_label("Password", exact=True).wait_for(timeout=60_000)
+    rec.say("intro")
+    rec.say("password")
+    page.get_by_label("Password", exact=True).press_sequentially(PASSWORD, delay=25)
+    page.get_by_role("button", name="Sign in").click()
+    page.get_by_placeholder(CHAT_INPUT).wait_for(timeout=60_000)
+
+    rec.say("group")
+    rec.ask("Grab's Singapore holding company owns 100% of two Singapore subsidiaries with the same December "
+            "year-end. If the food-delivery subsidiary makes a loss this year, can it transfer the loss to the "
+            "profitable ride-hailing subsidiary?")
+    rec.say("group_result")
+    page.get_by_text("Sources cited").last.click()
+    rec.scroll_down()
+
+    rec.say("renovation")
+    rec.ask("Grab is refurbishing its Singapore offices in YA 2026. How much of the renovation cost can it claim, "
+            "and over what period?")
+    rec.say("renovation_result")
+
+    page.get_by_text("Compare with the naive baseline").click()
+    rec.say("compare")
+    rec.ask("A new Grab subsidiary makes a loss this year. By when must it elect to carry the loss back against "
+            "last year's income, and can it withdraw the election afterwards?")
+    rec.show_last('[data-testid="stTabs"]')
+    rec.say("structured_answer")
+    page.get_by_role("tab", name="Naive baseline").last.click()
+    page.wait_for_timeout(800)
+    rec.show_last('[data-testid="stTabs"]')
+    rec.say("naive_answer")
+    page.get_by_text("Compare with the naive baseline").click()
+
+    rec.say("refuse")
+    rec.ask("What GST rate should Grab charge on its platform fees?")
+    rec.say("refused")
+    rec.end_card(GRAB_END_CARD.format(**RESULTS))
+
+
 def main() -> None:
+    global OUT, SCRIPT_OUT
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--no-voice", action="store_true", help="captions only, no narration")
+    parser.add_argument("--story", choices=["general", "grab"], default="general",
+                        help="grab: the same app seen from Grab's Singapore tax team")
     args = parser.parse_args()
+    story = walkthrough
+    if args.story == "grab":
+        SCENES.clear()
+        SCENES.update(GRAB_SCENES)
+        OUT, SCRIPT_OUT = ROOT / "results" / "demo_grab.mp4", ROOT / "results" / "demo_grab_script.md"
+        story = walkthrough_grab
     with tempfile.TemporaryDirectory() as work:
         voice = None if args.no_voice else synthesize(Path(work))
         app = start_app()
@@ -296,7 +404,7 @@ def main() -> None:
                 page = context.new_page()
                 rec = Recorder(page, voice)
                 try:
-                    walkthrough(rec)
+                    story(rec)
                 finally:
                     context.close()      # the video file is written on close
                     raw = Path(page.video.path())
