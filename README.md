@@ -50,7 +50,9 @@ Design decisions, each argued in [`docs/PLAN.md`](docs/PLAN.md):
 Retrieval and answers on 25 questions with gold sections and paragraphs, plus 3 the corpus can't answer.
 Full tables and caveats: [`results/metrics.md`](results/metrics.md) and [`docs/PLAN.md`](docs/PLAN.md).
 Methods from a legal RAG project (reranking, A* expansion, a skill playbook, retries, multi-search research)
-tested on 149 new held-out questions: [`results/experiments.md`](results/experiments.md).
+tested on 149 new held-out questions: [`results/experiments.md`](results/experiments.md). With Claude Opus 5.5 as
+the answer model, and against IRAS's own chatbot: [`results/claude-results.md`](results/claude-results.md) (summary
+[below](#claude-opus-55-as-the-answer-model)).
 
 | Both searched with Gemini embeddings | naive 500-token chunks (`baseline`) | structure-aware chunks (`improved`) |
 |---|---|---|
@@ -143,6 +145,25 @@ answered once. It scored 0.722 on test and 0.725 on dev, against 0.747 and 0.738
 calls per question. A version in which the model picks its searches step by step, with retries, scored highest
 (0.823 on test). But without the retry it scored about the same as `improved` (0.753), and it was singled out
 after the results were in, so it would need its own test on new questions.
+
+### Claude Opus 5.5 as the answer model
+
+Claude Opus 5.5 was run through this pipeline (`improved`, your prompt and citation checker) on the 79 held-out
+answerable test questions. It was judged blind with the other systems by two Claude LLM judges, partial counting as half
+and an unanswered question as 0. Full tables and caveats: [`results/claude-results.md`](results/claude-results.md).
+
+| | Correct (all) | Answered wrongly |
+|---|---|---|
+| Claude Opus 5.5 in this pipeline | **0.937** (79 questions) | 1 |
+| qwen3:8b in this pipeline (the same answers as above, judged again: 0.747 there) | 0.715 | 5 |
+| Claude Opus 5.5 with no retrieval | 0.589 | 19 |
+| On a sample of 25 of the 79: Claude in this pipeline / IRAS's own chatbot | 0.920 / 0.520 | 1 / 1 |
+
+- **IRAS's chatbot answered 15 of the 25.** On the other 10 it asked for a shorter question. On the 15 it answered it
+  scores 0.867, against 0.900 for Claude in this pipeline.
+- **The questions favour this pipeline.** They were written from this corpus by LLM agents, and no person checked the
+  grades.
+- **The app is unchanged and still answers with gpt-oss-120b,** which has not been tested.
 
 ## Demo video
 

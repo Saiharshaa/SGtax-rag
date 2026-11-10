@@ -6,9 +6,11 @@ tax RAG. They ran on this repo's corpus, chunks, prompt, citation checker and to
 29 October and 1 November 2026, on one laptop (RTX 4060, 8 GB). This PR adds the two changes that came out of them:
 **Deep Tax Search** (`improved_astar`) and the reply **Retry**.
 
-Full write-ups, code and per-question outputs, in Legal_RAG_Exp. Until
-[Khawpuneiei/Legal_RAG_Exp#2](https://github.com/Khawpuneiei/Legal_RAG_Exp/pull/2) is merged, they are on its
-`taxrag-transfer` branch:
+A later round with Claude Opus 5.5 as the answer model, and against IRAS's own chatbot, is in
+[`claude-results.md`](claude-results.md).
+
+Full write-ups, code and per-question outputs are in Legal_RAG_Exp
+([Khawpuneiei/Legal_RAG_Exp#2](https://github.com/Khawpuneiei/Legal_RAG_Exp/pull/2), merged):
 - [`docs/taxrag-results.md`](https://github.com/Khawpuneiei/Legal_RAG_Exp/blob/main/docs/taxrag-results.md): retrieval methods (part 1);
 - [`docs/taxrag-rq12-protocol.md`](https://github.com/Khawpuneiei/Legal_RAG_Exp/blob/main/docs/taxrag-rq12-protocol.md): the plan for part 2, written before any answer existed;
 - [`docs/taxrag-rq12-results.md`](https://github.com/Khawpuneiei/Legal_RAG_Exp/blob/main/docs/taxrag-rq12-results.md): skills and harnesses (part 2);
