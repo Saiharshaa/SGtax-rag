@@ -10,6 +10,13 @@ hybrid retrieval beats naive fixed-size chunking on legal text.**
 **Status:** all five phases are built and the app is live on Render (password-protected). Both Gemini indexes
 (structure-aware and naive) are complete. See [`docs/PLAN.md`](docs/PLAN.md).
 
+**Full experiments:** every test run on this pipeline is in
+[Khawpuneiei/Legal_RAG_Exp](https://github.com/Khawpuneiei/Legal_RAG_Exp), with code, write-ups and per-question
+results. That covers retrieval methods, skills and retries, Claude as the answer model, and the comparison with IRAS's
+chatbot. The summaries here are in [`results/experiments.md`](results/experiments.md) and
+[`results/claude-results.md`](results/claude-results.md); the slides are in
+[`results/SG_Tax_RAG_BC3415.pptx`](results/SG_Tax_RAG_BC3415.pptx).
+
 ## How it works
 
 ```mermaid
@@ -163,7 +170,16 @@ and an unanswered question as 0. Full tables and caveats: [`results/claude-resul
   scores 0.867, against 0.900 for Claude in this pipeline.
 - **The questions favour this pipeline.** They were written from this corpus by LLM agents, and no person checked the
   grades.
+- **Out of scope:** 14 questions outside IRAS's remit were also asked (Malaysian, UK or Hong Kong tax, ACRA, CPF and
+  others). This pipeline declined all 14. IRAS's chatbot declined 3, pointing them to ACRA; it asked for a shorter
+  question on 8 and answered 3 Singapore CPF or Companies Act questions.
 - **The app is unchanged and still answers with gpt-oss-120b,** which has not been tested.
+
+## Slides
+
+[`results/SG_Tax_RAG_BC3415.pptx`](results/SG_Tax_RAG_BC3415.pptx) is the BC3415 presentation (11 slides, draft):
+the problem, the Grab use case, architecture, design choices, comparisons and the benchmarks above. The presenter
+names and date on the title slide, and the paid-database examples and cost on the comparison slide, are still to fill.
 
 ## Demo video
 
